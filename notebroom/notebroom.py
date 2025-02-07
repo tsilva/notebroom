@@ -41,6 +41,7 @@ Important rules:
 - FOCUS on making the given text more concise while preserving all information.
 - ENSURE clarity and educational value.
 - MAINTAIN technical accuracy.
+- USE emojis where applicable to increase engagement, but err on the side of not using them.
 Return ONLY the rewritten markdown cell. Do not include any introductory or concluding remarks."""
 
 SUMMARY_PROMPT = """Summarize these notebook cells concisely, preserving key concepts and progression.
