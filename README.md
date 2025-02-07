@@ -6,11 +6,11 @@ A tool to clean up Jupyter notebook markdown cells using LLMs. It processes each
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/notebroom.git
+git clone https://github.com/tsilva/notebroom.git
 cd notebroom
 ```
 
-2. Install globally with pip:
+2. Install with pip (will automatically use pyproject.toml):
 ```bash
 pip install -e .
 ```
