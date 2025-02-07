@@ -1,28 +1,30 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
-[project]
+[tool.poetry]
 name = "notebroom"
 version = "0.1.0"
-description = "Clean up Jupyter notebook markdown cells using LLMs"
+description = "Jupyter notebook markdown cleaner using LLMs"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
 readme = "README.md"
-requires-python = ">=3.8"
-dependencies = [
-    "nbformat==5.9.2",
-    "python-dotenv==1.0.0",
-    "colorama==0.4.6",
-    "tqdm==4.66.1",
-    "tiktoken>=0.5.1,<0.6.0",
-    "langchain-openai>=0.0.5",
-    "langchain>=0.1.0",
-    "langchain-google-vertexai==0.0.7",
-    "pydantic>=1.9,<2.0",
-    "langsmith"
-]
 
-[project.scripts]
-notebroom = "notebroom.notebroom:main"
+[tool.poetry.dependencies]
+python = "^3.8"
+nbformat = "^5.9.2"
+tiktoken = "^0.6.0"
+tqdm = "^4.66.2"
+colorama = "^0.4.6"
+python-dotenv = "^1.0.1"
+langchain-openai = "^0.1.0"
+langchain-google-vertexai = "^0.1.0"
+ratelimit = "^2.2.1"
+backoff = "^2.2.1"
+openai = "1.12.0"
 
-[tool.hatch.build.targets.wheel]
-packages = ["notebroom"]
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+black = "^24.2.0"
+flake8 = "^7.0.0"
+mypy = "^1.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
