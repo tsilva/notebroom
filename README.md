@@ -2,35 +2,30 @@
 
 A tool to clean up Jupyter notebook markdown cells using LLMs. It processes each markdown cell to make text more concise while preserving the original meaning and formatting. 🪄
 
-## Setup 🛠️
+## Installation 🔧
 
-1. Install `uv` if you haven't already:
+1. Clone the repository:
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/yourusername/notebroom.git
+cd notebroom
 ```
 
-2. Create and activate a new virtual environment:
+2. Install globally with pip:
 ```bash
-uv venv
-source .venv/bin/activate  # On Unix/macOS
-# or
-.venv\Scripts\activate  # On Windows
+pip install -e .
 ```
 
-3. Install dependencies:
+3. Create a `.env` file with your OpenAI API key:
 ```bash
-uv pip install -r requirements.txt
-```
-
-4. Create a `.env` file with your OpenAI API key:
-```bash
-echo "OPENAI_API_KEY=your-api-key-here" > .env
+echo "OPENAI_API_KEY=your-api-key-here" > ~/.notebroom.env
 ```
 
 ## Usage 🚀
 
+After installation, you can use notebroom from anywhere:
+
 ```bash
-python main.py your_notebook.ipynb
+notebroom your_notebook.ipynb
 ```
 
 The tool will process your notebook and create a new file with cleaned markdown cells. The output file will be saved in the same directory as your input file, with `.clean.ipynb` added before the extension.
