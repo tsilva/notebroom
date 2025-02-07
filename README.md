@@ -1,25 +1,34 @@
 # notebroom 📝✨
 
-A tool to clean up Jupyter notebook markdown cells using LLMs. It processes each markdown cell to make text more concise while preserving the original meaning and formatting. 🪄
+<p align="center">
+  <img src="logo.jpg" alt="notebroom logo" width="400"/>
+</p>
+
+A tool to process Jupyter notebook cells using LLMs. It supports various tasks to enhance your notebooks. 🪄
 
 ## Installation 🔧
 
 1.  Clone the repository:
+
     ```bash
     git clone https://github.com/tsilva/notebroom.git
     cd notebroom
     ```
 2.  Install with pip (uses `pyproject.toml` for dependencies):
+
     ```bash
     pip install .
     ```
 3.  Copy the example `.env.example` file to your home directory or project directory and modify it with your OpenAI API key and any other desired configurations:
+
     ```bash
     cp .env.example ~/.notebroom.env
     # or
     cp .env.example ./.notebroom.env
     ```
+
     Then, edit the file to add your OpenAI API key and other missing configurations:
+
     ```bash
     nano ~/.notebroom.env
     # or
