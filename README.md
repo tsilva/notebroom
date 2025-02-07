@@ -4,37 +4,27 @@ A tool to clean up Jupyter notebook markdown cells using LLMs. It processes each
 
 ## Installation 🔧
 
-1. Clone the repository:
-```bash
-git clone https://github.com/tsilva/notebroom.git
-cd notebroom
-```
-
-2. Install with pip (will automatically use pyproject.toml):
-```bash
-pip install -e .
-```
-
-3. Create a `.env` file with your OpenAI API key:
-```bash
-echo "OPENAI_API_KEY=your-api-key-here" > ~/.notebroom.env
-```
-
-## Configuration 🔧
-
-Configure notebroom using environment variables in your `.env` file:
-
-```bash
-# Required
-OPENAI_API_KEY=your-api-key-here
-
-# Optional (showing defaults)
-NOTEBROOM_MODEL=gpt-4o           # LLM model to use
-NOTEBROOM_MAX_TOKENS=4000        # Maximum tokens for context
-NOTEBROOM_KEEP_RECENT=3          # Number of recent cells to keep in full
-NOTEBROOM_TEMPERATURE=0.2        # LLM temperature
-NOTEBROOM_WINDOW_SIZE=10         # Maximum number of cells to consider for context
-```
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/tsilva/notebroom.git
+    cd notebroom
+    ```
+2.  Install with pip (uses `pyproject.toml` for dependencies):
+    ```bash
+    pip install .
+    ```
+3.  Copy the example `.env.example` file to your home directory or project directory and modify it with your OpenAI API key and any other desired configurations:
+    ```bash
+    cp .env.example ~/.notebroom.env
+    # or
+    cp .env.example ./.notebroom.env
+    ```
+    Then, edit the file to add your OpenAI API key and other missing configurations:
+    ```bash
+    nano ~/.notebroom.env
+    # or
+    nano ./.notebroom.env
+    ```
 
 ## Usage 🚀
 
