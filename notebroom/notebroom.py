@@ -1,18 +1,47 @@
 """Notebroom - Jupyter notebook markdown cleaner using LLMs."""
 
-from dotenv import load_dotenv
-load_dotenv()
-
-from colorama import Fore, Style, init
-init(autoreset=True) 
-
 import os
 import sys
+import re
 import logging
 import nbformat
 import tiktoken
 from tqdm import tqdm
-from openai import OpenAI
+from colorama import Fore, Style, init
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain.chains import create_extraction_chain
+
+# Initialize
+load_dotenv()
+init(autoreset=True)
+
+# Setup basic logging to console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
+
+# Rest of configurations
+CONFIG = {
+    'model': os.getenv('MODEL', 'gpt-4o-mini'),
+    'max_tokens': int(os.getenv('MAX_TOKENS', '1000')),
+    'keep_recent': int(os.getenv('KEEP_RECENT', '3')),
+    'temp': float(os.getenv('TEMPERATURE', '0.2')),
+    'window': int(os.getenv('WINDOW_SIZE', '10')),
+}
+
+def log_msg(msg, color=Fore.WHITE, emoji=''):
+    """Print colored message to console"""
+    print(f"{emoji} {color}{msg}{Style.RESET_ALL}")
+
+def is_header_only(text):
+    """Check if markdown cell only contains headers"""
+    lines = text.strip().split('\n')
+    return all(line.strip().startswith('#') or not line.strip() for line in lines)
 
 # Prompts for LLM interactions
 REWRITE_PROMPT = """
@@ -36,38 +65,20 @@ Important aspects:
 - Focus on relationships between ideas
 """.strip()
 
-# Initialize
-
-# Setup basic logging to console
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s',
-    stream=sys.stdout
-)
-logger = logging.getLogger(__name__)
-
-# Rest of configurations
-CONFIG = {
-    'model': os.getenv('NOTEBROOM_MODEL', 'gpt-4o-mini'),
-    'max_tokens': int(os.getenv('NOTEBROOM_MAX_TOKENS', '1000')),
-    'keep_recent': int(os.getenv('NOTEBROOM_KEEP_RECENT', '3')),
-    'temp': float(os.getenv('NOTEBROOM_TEMPERATURE', '0.2')),
-    'window': int(os.getenv('NOTEBROOM_WINDOW_SIZE', '10')),
-}
-
-def log_msg(msg, color=Fore.WHITE, emoji=''):
-    """Print colored message to console"""
-    print(f"{emoji} {color}{msg}{Style.RESET_ALL}")
-
-def is_header_only(text):
-    """Check if markdown cell only contains headers"""
-    lines = text.strip().split('\n')
-    return all(line.strip().startswith('#') or not line.strip() for line in lines)
-
 class NotebookProcessor:
     def __init__(self, model=CONFIG['model']):
-        self.client = OpenAI()
-        self.model = model
+        self.llm = ChatOpenAI(model_name=model, temperature=CONFIG['temp'], max_tokens=CONFIG['max_tokens'])
+        self.summary_prompt = ChatPromptTemplate.from_messages([
+            ("system", SUMMARY_PROMPT),
+            HumanMessagePromptTemplate.from_template("{content}")
+        ])
+        self.rewrite_prompt = ChatPromptTemplate.from_messages([
+            ("system", REWRITE_PROMPT),
+            HumanMessagePromptTemplate.from_template("Context:\n\n{context}\n\nMake this text more concise:\n\n{text}")
+        ])
+        # Use .invoke instead of chains
+        self.summary_chain = self.summary_prompt | self.llm
+        self.rewrite_chain = self.rewrite_prompt | self.llm
         self.summary_cache = {}  # Store running summaries
         self.last_summary_idx = -1  # Track where we last summarized
         self.enc = tiktoken.get_encoding("cl100k_base")
@@ -119,20 +130,22 @@ class NotebookProcessor:
         return '\n\n'.join(all_context)
     
     def summarize_cells(self, content):
-        """Create or extend summary"""
+        """Create or extend summary using Langchain"""
         try:
-            return self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SUMMARY_PROMPT},
-                    {"role": "user", "content": content}
-                ],
-                temperature=CONFIG['temp'],
-                max_tokens=CONFIG['max_tokens']//2
-            ).choices[0].message.content.strip()
+            result = self.summary_chain.invoke({'content': content})
+            return f"[Previous Content Summary]\n{result.content.strip()}"
         except Exception as e:
             logger.error(f"Summary failed: {e}")
             return "Summary generation failed"
+
+    def rewrite_cell(self, context, cell_source):
+        """Rewrite a cell using Langchain"""
+        try:
+            result = self.rewrite_chain.invoke({'context': context, 'text': cell_source})
+            return result.content.strip()
+        except Exception as e:
+            logger.error(f"Rewrite failed: {e}")
+            return cell_source
 
 def process_notebook(infile, outfile):
     """Process notebook markdown cells"""
@@ -149,15 +162,7 @@ def process_notebook(infile, outfile):
             context = processor.get_context(nb, idx)
             log_msg(f"\nProcessing cell {idx}:", Fore.CYAN, '📝')
             
-            new_text = processor.client.chat.completions.create(
-                model=CONFIG['model'],
-                messages=[
-                    {"role": "system", "content": REWRITE_PROMPT},
-                    {"role": "user", "content": f"Context:\n\n{context}\n\nMake this text more concise:\n\n{cell.source}"}
-                ],
-                temperature=CONFIG['temp'],
-                max_tokens=CONFIG['max_tokens']
-            ).choices[0].message.content.strip()
+            new_text = processor.rewrite_cell(context, cell.source)
             
             log_msg("Original:", Fore.RED, '📄')
             log_msg(cell.source, Fore.RED)
