@@ -4,7 +4,7 @@
   <img src="logo.jpg" alt="notebroom logo" width="400"/>
 </p>
 
-A tool to process Jupyter notebook cells using LLMs. It supports various tasks to enhance your notebooks. 🪄
+A tool 🧹 to clean up Jupyter notebook cells 📓 using LLMs 🤖, helping to enhance your content! ✨
 
 ## Installation 🔧
 
