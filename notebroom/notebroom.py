@@ -1,81 +1,133 @@
-"""Notebroom - A tool to clean up Jupyter notebook markdown cells."""
-
-__version__ = "0.1.0"
-
-from dotenv import load_dotenv
-load_dotenv()
+"""Notebroom - Jupyter notebook markdown cleaner using LLMs."""
 
 import os
-import re
 import sys
+import re
+import logging
 import nbformat
+import tiktoken
 from tqdm import tqdm
 from openai import OpenAI
 from colorama import Fore, Style, init
+from dotenv import load_dotenv
 
-init()  # Initialize colorama
+# Initialize
+load_dotenv()
+init(autoreset=True)  # Autoreset colorama colors
 
-SYSTEM_PROMPT = """
-Rewrite markdown text to be more concise and clear. Preserve meaning and formatting. Return only the revised markdown.
-""".strip()
+# Setup basic logging to console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
-def clean_md(text):
-    """Basic markdown cleanup"""
-    text = re.sub(r'\n\s*\n', '\n\n', text).strip()
-    text = re.sub(r'^( *[-+*]) +', r'\1 ', text, flags=re.MULTILINE)
-    text = re.sub(r'^(#+) *(.+)$', r'\1 \2', text, flags=re.MULTILINE)
-    return text
+# Rest of configurations
+CONFIG = {
+    'model': os.getenv('NOTEBROOM_MODEL', 'gpt-4o-mini'),
+    'max_tokens': int(os.getenv('NOTEBROOM_MAX_TOKENS', '1000')),
+    'keep_recent': int(os.getenv('NOTEBROOM_KEEP_RECENT', '3')),
+    'temp': float(os.getenv('NOTEBROOM_TEMPERATURE', '0.2')),
+    'window': int(os.getenv('NOTEBROOM_WINDOW_SIZE', '10')),
+}
 
-def log_change(idx, old, new):
-    """Log a cell change with colors"""
-    print(f"\n{Fore.CYAN}Cell #{idx}:{Style.RESET_ALL}")
-    print(f"{Fore.RED}Original:{Style.RESET_ALL}\n{old}")
-    print(f"\n{Fore.GREEN}Rewritten:{Style.RESET_ALL}\n{new}\n")
-    print("-" * 80)
+EMOJI = {
+    'context': '📚',
+    'cell': '📝',
+    'original': '⚪',
+    'rewritten': '✨',
+    'summary': '📑',
+    'error': '❌',
+    'save': '💾',
+}
 
-def rewrite_text(text):
-    """Rewrite text using LLM"""
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": text}
-        ],
-        temperature=0.2,
-        max_tokens=1024
-    )
-    return resp.choices[0].message.content.strip()
+def log_msg(msg, color=Fore.WHITE, emoji=''):
+    """Print colored message to console"""
+    print(f"{emoji} {color}{msg}{Style.RESET_ALL}")
 
-def get_output_filename(input_path):
-    """Generate output filename by adding 'clean' before the extension."""
-    base, ext = os.path.splitext(input_path)
-    return f"{base}.clean{ext}"
+def get_context(nb, idx):
+    """Get context from previous cells"""
+    enc = tiktoken.get_encoding("cl100k_base")
+    cells = []
+    
+    for i in range(max(0, idx - CONFIG['window']), idx):
+        cell = nb.cells[i]
+        content = [f"{'='*40}", f"{cell.cell_type.upper()} CELL {i}", f"{'='*40}", cell.source.strip()]
+        
+        if cell.cell_type == 'code' and hasattr(cell, 'outputs'):
+            outputs = [out.get('text', out.get('data', {}).get('text/plain', '')) 
+                      for out in cell.outputs if 'text' in out or 'data' in out]
+            if outputs:
+                content.extend([f"{'='*20} OUTPUT {'='*20}", *outputs])
+        
+        cells.append('\n'.join(content))
+    
+    context = '\n\n'.join(cells)
+    log_msg(f"\nContext for cell {idx}:\n{context}", Fore.BLUE, EMOJI['context'])
+    
+    if len(enc.encode(context)) > CONFIG['max_tokens']:
+        return summarize(context, cells[-CONFIG['keep_recent']:])
+    return context
 
-def process_nb(infile, outfile):
+def summarize(old_context, recent_cells):
+    """Summarize context if too long"""
+    try:
+        summary = OpenAI().chat.completions.create(
+            model=CONFIG['model'],
+            messages=[
+                {"role": "system", "content": "Summarize these notebook cells concisely, preserving key concepts and code examples."},
+                {"role": "user", "content": old_context}
+            ],
+            temperature=CONFIG['temp'],
+            max_tokens=CONFIG['max_tokens']//2
+        ).choices[0].message.content
+        return f"{'='*40}\nCONTEXT SUMMARY\n{'='*40}\n{summary}\n\n" + '\n\n'.join(recent_cells)
+    except Exception as e:
+        logger.error(f"Summary failed: {e}")
+        return '\n\n'.join(recent_cells)
+
+def process_notebook(infile, outfile):
     """Process notebook markdown cells"""
     nb = nbformat.read(infile, as_version=4)
+    client = OpenAI()
     
-    md_cells = [(i, c) for i, c in enumerate(nb.cells) if c.cell_type == 'markdown']
-    
-    for idx, cell in tqdm(md_cells, desc="Processing"):
-        clean = clean_md(cell.source)
-        if clean.strip():
-            new_text = rewrite_text(clean)
-            log_change(idx, cell.source, new_text)
-            cell.source = new_text
+    for idx, cell in enumerate(tqdm([c for c in nb.cells if c.cell_type == 'markdown'])):
+        try:
+            context = get_context(nb, idx)
+            log_msg(f"\nProcessing cell {idx} with context:", Fore.CYAN, EMOJI['context'])
+            log_msg(context, Fore.BLUE)
             
+            new_text = client.chat.completions.create(
+                model=CONFIG['model'],
+                messages=[
+                    {"role": "system", "content": "Rewrite markdown to be maximally educational yet concise, context-aware, and technically accurate."},
+                    {"role": "user", "content": f"Context:\n\n{context}\n\nRewrite this:\n\n{cell.source}"}
+                ],
+                temperature=CONFIG['temp'],
+                max_tokens=CONFIG['max_tokens']
+            ).choices[0].message.content.strip()
+            
+            log_msg(f"\nCell #{idx}:", Fore.CYAN, EMOJI['cell'])
+            log_msg("Original:", Fore.RED, EMOJI['original'])
+            log_msg(cell.source, Fore.RED)
+            log_msg("Rewritten:", Fore.GREEN, EMOJI['rewritten'])
+            log_msg(new_text, Fore.GREEN)
+            log_msg("-" * 80)
+            
+            cell.source = new_text
+        except Exception as e:
+            log_msg(f"Error processing cell {idx}: {e}", Fore.RED, EMOJI['error'])
+    
     nbformat.write(nb, outfile)
-    print(f"{Fore.GREEN}Saved to {outfile}{Style.RESET_ALL}")
+    log_msg(f"Saved to {outfile}", Fore.GREEN, EMOJI['save'])
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: notebroom <notebook.ipynb>")
+    if len(sys.argv) != 2 or not os.getenv("OPENAI_API_KEY"):
+        print("Usage: OPENAI_API_KEY=<key> notebroom <notebook.ipynb>")
         sys.exit(1)
     
-    input_file = sys.argv[1]
-    output_file = get_output_filename(input_file)
-    process_nb(input_file, output_file)
+    process_notebook(sys.argv[1], f"{os.path.splitext(sys.argv[1])[0]}.clean.ipynb")
 
 if __name__ == "__main__":
     main()

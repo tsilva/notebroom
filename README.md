@@ -20,6 +20,22 @@ pip install -e .
 echo "OPENAI_API_KEY=your-api-key-here" > ~/.notebroom.env
 ```
 
+## Configuration 🔧
+
+Configure notebroom using environment variables in your `.env` file:
+
+```bash
+# Required
+OPENAI_API_KEY=your-api-key-here
+
+# Optional (showing defaults)
+NOTEBROOM_MODEL=gpt-4o           # LLM model to use
+NOTEBROOM_MAX_TOKENS=4000        # Maximum tokens for context
+NOTEBROOM_KEEP_RECENT=3          # Number of recent cells to keep in full
+NOTEBROOM_TEMPERATURE=0.2        # LLM temperature
+NOTEBROOM_WINDOW_SIZE=10         # Maximum number of cells to consider for context
+```
+
 ## Usage 🚀
 
 After installation, you can use notebroom from anywhere:
