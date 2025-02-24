@@ -17,7 +17,7 @@ A tool 🧹 to clean up Jupyter notebook cells 📓 using LLMs 🤖, helping to 
 2.  Install with pip (uses `pyproject.toml` for dependencies):
 
     ```bash
-    pip install .
+    pip install -e .
     ```
 3.  Copy the example `.env.example` and then edit the file to add your OpenAI API key and other missing configurations:
 
