@@ -19,20 +19,11 @@ A tool 🧹 to clean up Jupyter notebook cells 📓 using LLMs 🤖, helping to 
     ```bash
     pip install .
     ```
-3.  Copy the example `.env.example` file to your home directory or project directory and modify it with your OpenAI API key and any other desired configurations:
+3.  Copy the example `.env.example` and then edit the file to add your OpenAI API key and other missing configurations:
 
     ```bash
-    cp .env.example ~/.notebroom.env
-    # or
-    cp .env.example ./.notebroom.env
-    ```
-
-    Then, edit the file to add your OpenAI API key and other missing configurations:
-
-    ```bash
-    nano ~/.notebroom.env
-    # or
-    nano ./.notebroom.env
+    cp .env.example ./env
+    nano ./env
     ```
 
 ## Usage 🚀
