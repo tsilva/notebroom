@@ -2,7 +2,7 @@
 name = "notebroom"
 version = "0.1.0"
 description = "Jupyter notebook markdown cleaner using LLMs"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Tiago Silva <eng.tiago.silva@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 
@@ -14,7 +14,6 @@ tqdm = "^4.66.2"
 colorama = "^0.4.6"
 python-dotenv = "^1.0.1"
 langchain-openai = "^0.1.0"
-langchain-google-vertexai = "^0.1.0"
 ratelimit = "^2.2.1"
 backoff = "^2.2.1"
 openai = "1.12.0"
@@ -24,6 +23,9 @@ pytest = "^8.0.0"
 black = "^24.2.0"
 flake8 = "^7.0.0"
 mypy = "^1.8.0"
+
+[tool.poetry.scripts]
+notebroom = "notebroom.main:main" 
 
 [build-system]
 requires = ["poetry-core"]
