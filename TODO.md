@@ -1,0 +1,4 @@
+- [ ] Fix "open in colab" links
+- [ ] Files suffix should be name of executed task
+- [ ] Improve command line
+- [ ] Dump notebook as plain text to send to LLM
