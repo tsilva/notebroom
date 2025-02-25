@@ -2,3 +2,4 @@
 - [ ] Files suffix should be name of executed task
 - [ ] Improve command line
 - [ ] Dump notebook as plain text to send to LLM
+- [ ] Support running multiple tasks in sequence
