@@ -382,14 +382,14 @@ class FixColabLinks(Task):
 def process_notebook(infile: str, task_name: str, output: Optional[str] = None) -> None:
     """Process a single notebook with the given task."""
     # Determine output file path
-    base, ext = os.path.splitext(infile)
     if output:
         if os.path.isdir(output):
             outfile = os.path.join(output, os.path.basename(infile))
         else:
             outfile = output
     else:
-        outfile = f"{base}.clean{ext}"
+        # Use the original file name instead of adding a .clean suffix
+        outfile = infile
     
     # Initialize configuration
     config = Config()
