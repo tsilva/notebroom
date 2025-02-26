@@ -553,41 +553,61 @@ def process_notebook(infile: str, task_name: str, output: Optional[str] = None) 
 def main():
     """Main entry point for the Notebroom CLI."""
     available_tasks = ["clean_markdown", "emojify", "fix_colab_links", "dump_markdown"]
+    
+    # Create a more intuitive command-line interface
     parser = argparse.ArgumentParser(
-        description="Jupyter notebook tool with task-based processing using LLMs.",
-        formatter_class=argparse.RawTextHelpFormatter
+        description="🧹 Notebroom - A CLI tool for cleaning and processing Jupyter notebooks with LLMs.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Fix Colab links in a notebook
+  notebroom fix_colab_links path/to/notebook.ipynb
+  
+  # Clean markdown cells in all notebooks in a directory
+  notebroom clean_markdown path/to/notebooks/ -o path/to/output/
+  
+  # Export notebook to markdown for LLM processing
+  notebroom dump_markdown notebook.ipynb -o notebook_for_llm.md
+        """
     )
-    parser.add_argument("notebook", help="Path to the input notebook file or directory containing notebooks.")
+    
+    # Make the task the first argument for a more intuitive interface
     parser.add_argument(
         "task",
-        help="Name of the task to execute. Available tasks:\n" + "\n".join(available_tasks),
-        nargs='?',
+        metavar="TASK",
+        choices=available_tasks,
+        help="Task to execute. Available tasks: " + ", ".join(available_tasks)
+    )
+    
+    parser.add_argument(
+        "notebook",
+        metavar="NOTEBOOK_PATH",
+        help="Path to the input notebook file or directory containing notebooks"
+    )
+    
+    parser.add_argument(
+        "-o", "--output",
+        metavar="OUTPUT_PATH",
+        help="Path to the output file or directory. If not provided, input files will be modified in-place.",
         default=None
     )
-    parser.add_argument("-o", "--output", help="Path to the output notebook file or directory.", default=None)
+    
+    # Parse arguments
     args = parser.parse_args()
     
-    if not args.task:
-        parser.print_help()
-        sys.exit(1)
-        
-    if args.task not in available_tasks:
-        print(f"Error: Unknown task '{args.task}'. Available tasks are: {', '.join(available_tasks)}")
-        sys.exit(1)
-        
-    # Only check for API key if using LLM tasks
-    if not os.getenv("OPENAI_API_KEY") and args.task in ["clean_markdown", "emojify"]:
-        print(f"Error: OPENAI_API_KEY environment variable must be set for the {args.task} task.")
-        sys.exit(1)
-        
-    infile = args.notebook
     task_name = args.task
+    infile = args.notebook
+    
+    # Only check for API key if using LLM tasks
+    if not os.getenv("OPENAI_API_KEY") and task_name in ["clean_markdown", "emojify"]:
+        print(f"Error: OPENAI_API_KEY environment variable must be set for the {task_name} task.")
+        sys.exit(1)
     
     # Check if infile is a directory
     if os.path.isdir(infile):
         notebooks = find_notebooks(infile)
         if not notebooks:
-            print(f"No .ipynb files found in {infile}")
+            print(f"Error: No .ipynb files found in {infile}")
             sys.exit(1)
             
         # Prompt for confirmation
@@ -611,9 +631,13 @@ def main():
         for nb_file in notebooks:
             process_notebook(nb_file, task_name, args.output)
     else:
+        # Check if file exists
+        if not os.path.exists(infile):
+            print(f"Error: Notebook file not found: {infile}")
+            sys.exit(1)
+            
         # Process single notebook
         process_notebook(infile, task_name, args.output)
-
 
 if __name__ == "__main__":
     main()

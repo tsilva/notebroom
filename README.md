@@ -32,43 +32,51 @@ pip install 'notebroom[llm]'
 ### Basic Command Format
 
 ```bash
-notebroom <notebook-path> <task-name> [options]
+notebroom TASK NOTEBOOK_PATH [options]
 ```
 
-### Tasks
-
-#### 1. Fix Colab Links
+For example:
 
 ```bash
-notebroom path/to/notebook.ipynb fix_colab_links
+notebroom fix_colab_links notebook.ipynb
+```
+
+Run `notebroom -h` to see all available options.
+
+### Available Tasks
+
+#### 1. Fix Colab Links (`fix_colab_links`)
+
+```bash
+notebroom fix_colab_links path/to/notebook.ipynb
 ```
 
 This task detects Colab links in markdown cells and updates them to point to the correct GitHub repository based on your local Git configuration. It works with both Markdown-style and HTML-style Colab links.
 
-#### 2. Clean Markdown
+#### 2. Clean Markdown (`clean_markdown`)
 
 ```bash
-notebroom path/to/notebook.ipynb clean_markdown
+notebroom clean_markdown path/to/notebook.ipynb
 ```
 
 Uses an LLM to make existing markdown cells more concise and clear while preserving all information and maintaining technical accuracy.
 
 > ⚠️ Requires `OPENAI_API_KEY` environment variable to be set.
 
-#### 3. Emojify
+#### 3. Emojify (`emojify`)
 
 ```bash
-notebroom path/to/notebook.ipynb emojify
+notebroom emojify path/to/notebook.ipynb
 ```
 
 Adds appropriate emojis to markdown cells to make the content more engaging and readable.
 
 > ⚠️ Requires `OPENAI_API_KEY` environment variable to be set.
 
-#### 4. Export to Markdown
+#### 4. Export to Markdown (`dump_markdown`)
 
 ```bash
-notebroom path/to/notebook.ipynb dump_markdown -o output.md
+notebroom dump_markdown path/to/notebook.ipynb -o output.md
 ```
 
 Converts the notebook to a specially formatted markdown file that is optimized for LLM processing. Each cell is enclosed in HTML comments with type and number markers, making it easy for LLMs to reference specific cells.
@@ -78,7 +86,7 @@ Converts the notebook to a specially formatted markdown file that is optimized f
 You can process all notebooks in a directory by specifying a directory path:
 
 ```bash
-notebroom path/to/directory fix_colab_links
+notebroom fix_colab_links path/to/directory/
 ```
 
 ### Output Options
@@ -86,7 +94,7 @@ notebroom path/to/directory fix_colab_links
 By default, most tasks modify the notebook in place. To save to a different location:
 
 ```bash
-notebroom path/to/notebook.ipynb task-name -o path/to/output.ipynb
+notebroom task-name path/to/notebook.ipynb -o path/to/output.ipynb
 ```
 
 For `dump_markdown`, the default output is a markdown file with the same name as the notebook.
@@ -110,19 +118,19 @@ Notebroom can be configured using environment variables:
 ### Fix Colab links in an entire repository
 
 ```bash
-notebroom path/to/notebooks fix_colab_links
+notebroom fix_colab_links path/to/notebooks/
 ```
 
 ### Clean markdown and save to a new file
 
 ```bash
-notebroom notebook.ipynb clean_markdown -o cleaned_notebook.ipynb
+notebroom clean_markdown notebook.ipynb -o cleaned_notebook.ipynb
 ```
 
 ### Export notebook to formatted markdown for LLM analysis
 
 ```bash
-notebroom complex_notebook.ipynb dump_markdown -o for_llm_analysis.md
+notebroom dump_markdown complex_notebook.ipynb -o for_llm_analysis.md
 ```
 
 ## 📚 Output Format for LLM Processing
