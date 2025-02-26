@@ -36,17 +36,17 @@ class Config:
     
     def __init__(self):
         self.values = {
-            'model': os.getenv('NOTEBROOM_MODEL', 'anthropic/claude-3-7-sonnet'),
-            'max_tokens': int(os.getenv('NOTEBROOM_MAX_TOKENS', '1000')),
-            'keep_recent': int(os.getenv('NOTEBROOM_KEEP_RECENT', '3')),
-            'temp': float(os.getenv('NOTEBROOM_TEMPERATURE', '0.2')),
-            'tpm_limit': int(os.getenv('NOTEBROOM_TPM_LIMIT', '100000')),  # OpenRouter limit
-            'rpm_limit': int(os.getenv('NOTEBROOM_RPM_LIMIT', '60')),  # OpenRouter limit
-            'max_retries': int(os.getenv('NOTEBROOM_MAX_RETRIES', '5')),
-            'backoff_factor': float(os.getenv('NOTEBROOM_BACKOFF_FACTOR', '3')),
-            'error_throttle_time': int(os.getenv('NOTEBROOM_ERROR_THROTTLE_TIME', '3')),
-            'num_workers': int(os.getenv('NOTEBROOM_NUM_WORKERS', '8')),  # Increased for throughput
-            'batch_size': int(os.getenv('NOTEBROOM_BATCH_SIZE', '4')),  # New batch parameter
+            'model': os.getenv('MODEL', 'anthropic/claude-3-7-sonnet'),
+            'max_tokens': int(os.getenv('MAX_TOKENS', '1000')),
+            'keep_recent': int(os.getenv('KEEP_RECENT', '3')),
+            'temp': float(os.getenv('TEMPERATURE', '0.2')),
+            'tpm_limit': int(os.getenv('TPM_LIMIT', '100000')),
+            'rpm_limit': int(os.getenv('RPM_LIMIT', '60')),
+            'max_retries': int(os.getenv('MAX_RETRIES', '5')),
+            'backoff_factor': float(os.getenv('BACKOFF_FACTOR', '3')),
+            'error_throttle_time': int(os.getenv('ERROR_THROTTLE_TIME', '3')),
+            'num_workers': int(os.getenv('NUM_WORKERS', '8')),
+            'batch_size': int(os.getenv('BATCH_SIZE', '4')),
             'openrouter_api_base': os.getenv('OPENROUTER_API_BASE', 'https://openrouter.ai/api/v1'),
             'openrouter_api_key': os.getenv('OPENROUTER_API_KEY', '')
         }
