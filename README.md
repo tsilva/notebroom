@@ -20,12 +20,37 @@ Notebroom is a command-line tool that helps you clean, process, and transform Ju
 ## 🚀 Installation
 
 ```bash
-# Basic installation
-pip install notebroom
+# Clone the repository
+git clone https://github.com/tsilva/notebroom.git
+cd notebroom
 
-# Or with LLM support (required for clean_markdown and emojify)
-pip install 'notebroom[llm]'
+# Install the package
+pip install -e .
 ```
+
+## Setup with OpenRouter
+
+Notebroom uses [OpenRouter](https://openrouter.ai/) to access Claude-3.7-Sonnet and other LLMs.
+
+1. Create an account at [OpenRouter](https://openrouter.ai/)
+2. Generate an API key from your dashboard
+3. Set the API key as an environment variable:
+
+```bash
+# Add this to your .env file
+OPENROUTER_API_KEY=your_api_key_here
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENROUTER_API_KEY` | Your OpenRouter API key | (required) |
+| `NOTEBROOM_MODEL` | Model to use | `anthropic/claude-3-7-sonnet` |
+| `NOTEBROOM_MAX_TOKENS` | Max tokens in response | `1000` |
+| `NOTEBROOM_TEMPERATURE` | Temperature setting | `0.2` |
+| `NOTEBROOM_BATCH_SIZE` | Batch size for processing | `4` |
+| `NOTEBROOM_NUM_WORKERS` | Number of worker threads | `8` |
 
 ## 🛠️ Usage
 
@@ -61,7 +86,7 @@ notebroom clean_markdown path/to/notebook.ipynb
 
 Uses an LLM to make existing markdown cells more concise and clear while preserving all information and maintaining technical accuracy.
 
-> ⚠️ Requires `OPENAI_API_KEY` environment variable to be set.
+> ⚠️ Requires `OPENROUTER_API_KEY` environment variable to be set.
 
 #### 3. Emojify (`emojify`)
 
@@ -71,7 +96,7 @@ notebroom emojify path/to/notebook.ipynb
 
 Adds appropriate emojis to markdown cells to make the content more engaging and readable.
 
-> ⚠️ Requires `OPENAI_API_KEY` environment variable to be set.
+> ⚠️ Requires `OPENROUTER_API_KEY` environment variable to be set.
 
 #### 4. Export to Markdown (`dump_markdown`)
 
@@ -105,10 +130,10 @@ Notebroom can be configured using environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NOTEBROOM_MODEL` | LLM model to use | `gpt-4o-mini` |
+| `NOTEBROOM_MODEL` | LLM model to use | `anthropic/claude-3-7-sonnet` |
 | `NOTEBROOM_MAX_TOKENS` | Maximum tokens for LLM responses | `1000` |
 | `NOTEBROOM_TEMPERATURE` | Temperature for LLM responses | `0.2` |
-| `NOTEBROOM_NUM_WORKERS` | Number of concurrent workers | `4` |
+| `NOTEBROOM_NUM_WORKERS` | Number of concurrent workers | `8` |
 | `NOTEBROOM_TPM_LIMIT` | Tokens per minute limit | `10000000` |
 | `NOTEBROOM_RPM_LIMIT` | Requests per minute limit | `100` |
 | `NOTEBROOM_MAX_RETRIES` | Maximum retries for failed LLM calls | `5` |
@@ -153,6 +178,15 @@ import pandas as pd
 ```
 
 This format makes it easy for LLMs to reference specific cells by type and number (e.g., "In CODE:2, you should add...").
+
+## Performance Optimizations
+
+This version is optimized for throughput when working with Claude-3.7-Sonnet:
+
+- Batched cell processing for parallel execution
+- Improved connection pooling and request handling
+- Intelligent rate limiting for OpenRouter's API constraints
+- Automatic retry with exponential backoff
 
 ## 📄 License
 
