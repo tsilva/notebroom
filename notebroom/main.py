@@ -5,16 +5,15 @@ import sys
 import logging
 import argparse
 import time
-import random
 import threading
+import requests
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any, Union, Callable
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 import re
 import subprocess
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
-from functools import wraps
 
 from dotenv import load_dotenv
 from colorama import Fore, Style, init
@@ -37,16 +36,19 @@ class Config:
     
     def __init__(self):
         self.values = {
-            'model': os.getenv('NOTEBROOM_MODEL', 'gpt-4o-mini'),
+            'model': os.getenv('NOTEBROOM_MODEL', 'anthropic/claude-3-7-sonnet'),
             'max_tokens': int(os.getenv('NOTEBROOM_MAX_TOKENS', '1000')),
             'keep_recent': int(os.getenv('NOTEBROOM_KEEP_RECENT', '3')),
             'temp': float(os.getenv('NOTEBROOM_TEMPERATURE', '0.2')),
-            'tpm_limit': int(os.getenv('NOTEBROOM_TPM_LIMIT', '10000000')),
-            'rpm_limit': int(os.getenv('NOTEBROOM_RPM_LIMIT', '100')),
+            'tpm_limit': int(os.getenv('NOTEBROOM_TPM_LIMIT', '100000')),  # OpenRouter limit
+            'rpm_limit': int(os.getenv('NOTEBROOM_RPM_LIMIT', '60')),  # OpenRouter limit
             'max_retries': int(os.getenv('NOTEBROOM_MAX_RETRIES', '5')),
             'backoff_factor': float(os.getenv('NOTEBROOM_BACKOFF_FACTOR', '3')),
             'error_throttle_time': int(os.getenv('NOTEBROOM_ERROR_THROTTLE_TIME', '3')),
-            'num_workers': int(os.getenv('NOTEBROOM_NUM_WORKERS', '4'))
+            'num_workers': int(os.getenv('NOTEBROOM_NUM_WORKERS', '8')),  # Increased for throughput
+            'batch_size': int(os.getenv('NOTEBROOM_BATCH_SIZE', '4')),  # New batch parameter
+            'openrouter_api_base': os.getenv('OPENROUTER_API_BASE', 'https://openrouter.ai/api/v1'),
+            'openrouter_api_key': os.getenv('OPENROUTER_API_KEY', '')
         }
     
     def __getitem__(self, key: str) -> Any:
@@ -62,18 +64,26 @@ class TokenRateLimiter:
     def __init__(self, config: Config):
         self.config = config
         self.tpm_lock = threading.Lock()
+        self.rpm_lock = threading.Lock()
         self.tokens_used_this_minute = 0
+        self.requests_this_minute = 0
         self.last_minute_start = time.time()
         self.encoder = tiktoken.get_encoding("cl100k_base")
     
     def throttle(self, token_count: int) -> None:
-        """Throttle requests to stay within TPM limit."""
-        with self.tpm_lock:
-            now = time.time()
-            if now - self.last_minute_start > 60:
+        """Throttle requests to stay within TPM and RPM limits."""
+        now = time.time()
+        
+        # Check if we're in a new minute
+        if now - self.last_minute_start > 60:
+            with self.tpm_lock:
                 self.tokens_used_this_minute = 0
                 self.last_minute_start = now
-                
+            with self.rpm_lock:
+                self.requests_this_minute = 0
+        
+        # Check TPM limit
+        with self.tpm_lock:
             if self.tokens_used_this_minute + token_count > self.config['tpm_limit']:
                 sleep_time = 60 - (now - self.last_minute_start)
                 if sleep_time > 0:
@@ -81,67 +91,126 @@ class TokenRateLimiter:
                     time.sleep(sleep_time)
                 self.tokens_used_this_minute = 0
                 self.last_minute_start = time.time()
-                
             self.tokens_used_this_minute += token_count
+        
+        # Check RPM limit
+        with self.rpm_lock:
+            if self.requests_this_minute + 1 > self.config['rpm_limit']:
+                sleep_time = 60 - (now - self.last_minute_start)
+                if sleep_time > 0:
+                    log_msg(f"RPM limit reached. Sleeping for {sleep_time:.2f} seconds.", Fore.YELLOW)
+                    time.sleep(sleep_time)
+                self.requests_this_minute = 0
+                self.last_minute_start = time.time()
+            self.requests_this_minute += 1
     
     def estimate_tokens(self, text: str) -> int:
         """Estimate token count for a string."""
         return len(self.encoder.encode(text))
 
 
-class LLMService:
-    """Manages LLM interactions with rate limiting and error handling."""
+class OpenRouterLLMService:
+    """Manages LLM interactions via OpenRouter with rate limiting and error handling."""
     
     def __init__(self, config: Config):
         self.config = config
         self.rate_limiter = TokenRateLimiter(config)
         
-        # Lazy import LLM dependencies only when needed
+        # Check if OpenRouter API key is configured
+        if not config['openrouter_api_key']:
+            log_msg("OpenRouter API key not found. Please set OPENROUTER_API_KEY environment variable.", 
+                   Fore.RED, '❌')
+            raise ValueError("OpenRouter API key not configured")
+        
+        self.api_base = config['openrouter_api_base']
+        self.model = config['model']
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config['openrouter_api_key']}",
+            "HTTP-Referer": "https://github.com/tsilva/notebroom",  # Identify your application
+            "X-Title": "Notebroom"  # Application name
+        }
+        
+        # Create a session for connection pooling
+        self.session = requests.Session()
+        for adapter in self.session.adapters.values():
+            # Increase connection pool size for better throughput
+            adapter.max_retries = 3
+            adapter.pool_connections = 20
+            adapter.pool_maxsize = 20
+
+        # Initialize the semaphore for parallel request limiting
+        self.semaphore = threading.Semaphore(min(config['batch_size'], 8))
+    
+    def call_llm(self, messages: List[Dict[str, str]], retry_count=0) -> str:
+        """Call the LLM with rate limiting and error handling."""
+        # Estimate token usage for rate limiting
+        message_text = " ".join([msg["content"] for msg in messages])
+        input_tokens = self.rate_limiter.estimate_tokens(message_text)
+        
+        # Apply rate limiting before making the request
+        self.rate_limiter.throttle(input_tokens)
+        
         try:
-            from ratelimit import limits
-            from backoff import on_exception, expo
-            
-            if "gemini" in config['model']:
-                from langchain_google_vertexai import ChatVertexAI
-                self.llm = ChatVertexAI(
-                    model_name=config['model'],
-                    convert_system_message_to_human=True,
-                    temperature=config['temp'],
-                    max_tokens=config['max_tokens']
-                )
-            else:
-                from langchain_openai import ChatOpenAI
-                self.llm = ChatOpenAI(
-                    model_name=config['model'],
-                    temperature=config['temp'],
-                    max_tokens=config['max_tokens']
+            with self.semaphore:
+                payload = {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": self.config['max_tokens'],
+                    "temperature": self.config['temp']
+                }
+                
+                response = self.session.post(
+                    f"{self.api_base}/chat/completions",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=30  # Add timeout to prevent hanging requests
                 )
                 
-            # Define decorated methods
-            self.call_llm = limits(calls=100, period=60)(self._call_llm)
-            self.process_text = on_exception(
-                expo, Exception, max_tries=5, factor=3, jitter=random.random
-            )(self._process_text)
-            
-        except ImportError as e:
-            log_msg(f"Failed to import LLM dependencies: {e}", Fore.RED, '❌')
-            raise
-    
-    def _call_llm(self, messages: List[Dict[str, str]]) -> str:
-        """Call the LLM with rate limiting and error handling."""
-        try:
-            result = self.llm.invoke(messages)
-            token_count = self.rate_limiter.estimate_tokens(result.content)
-            self.rate_limiter.throttle(token_count)
-            return result.content.strip()
+                if response.status_code != 200:
+                    error_msg = f"OpenRouter API error: HTTP {response.status_code}"
+                    try:
+                        error_data = response.json()
+                        if 'error' in error_data:
+                            error_msg += f" - {error_data['error'].get('message', '')}"
+                    except:
+                        error_msg += f" - {response.text}"
+                    
+                    # Handle rate limiting with exponential backoff
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get('Retry-After', self.config['error_throttle_time']))
+                        log_msg(f"Rate limited. Waiting for {retry_after} seconds.", Fore.YELLOW)
+                        time.sleep(retry_after)
+                        
+                        # Retry with exponential backoff
+                        if retry_count < self.config['max_retries']:
+                            backoff_time = self.config['backoff_factor'] ** retry_count
+                            time.sleep(backoff_time)
+                            return self.call_llm(messages, retry_count + 1)
+                    
+                    raise ValueError(error_msg)
+                
+                response_data = response.json()
+                content = response_data['choices'][0]['message']['content'].strip()
+                
+                # Track output tokens for rate limiting
+                output_tokens = self.rate_limiter.estimate_tokens(content)
+                self.rate_limiter.throttle(output_tokens)
+                
+                return content
+                
         except Exception as e:
-            log_msg(f"LLM call failed: {e}. Throttling for {self.config['error_throttle_time']} seconds.", 
-                   Fore.YELLOW)
-            time.sleep(self.config['error_throttle_time'])
-            raise e
+            if retry_count < self.config['max_retries']:
+                backoff_time = self.config['backoff_factor'] ** retry_count
+                log_msg(f"LLM call failed: {e}. Retrying in {backoff_time} seconds.", Fore.YELLOW)
+                time.sleep(backoff_time)
+                return self.call_llm(messages, retry_count + 1)
+            else:
+                log_msg(f"LLM call failed after {self.config['max_retries']} retries: {e}", Fore.RED)
+                raise e
     
-    def _process_text(self, system_prompt: str, user_text: str) -> str:
-        """Process text using the LLM with retries and backoff."""
+    def process_text(self, system_prompt: str, user_text: str) -> str:
+        """Process text using the LLM."""
         try:
             start_time = time.time()
             messages = [
@@ -155,6 +224,15 @@ class LLMService:
         except Exception as e:
             logger.error(f"LLM processing failed: {e}")
             return user_text
+    
+    def process_batch(self, tasks: List[Dict[str, str]]) -> List[str]:
+        """Process a batch of text prompts in parallel for improved throughput."""
+        with ThreadPoolExecutor(max_workers=self.config['batch_size']) as executor:
+            futures = [
+                executor.submit(self.process_text, task['system_prompt'], task['user_text']) 
+                for task in tasks
+            ]
+            return [future.result() for future in futures]
 
 
 # Utility functions
@@ -180,12 +258,12 @@ class Task(ABC):
         self.config = config
     
     @abstractmethod
-    def process_cell(self, cell: NotebookNode, llm_service: Optional[LLMService] = None) -> NotebookNode:
+    def process_cell(self, cell: NotebookNode, llm_service: Optional[OpenRouterLLMService] = None) -> NotebookNode:
         """Process a single notebook cell."""
         pass
     
     def process_notebook(self, infile: str, outfile: str, 
-                         llm_service: Optional[LLMService], nb: NotebookNode) -> None:
+                         llm_service: Optional[OpenRouterLLMService], nb: NotebookNode) -> None:
         """Process an entire notebook."""
         for cell in nb.cells:
             self.process_cell(cell, llm_service)
@@ -198,7 +276,7 @@ class TextProcessingTask(Task):
         super().__init__(config)
         self.system_prompt = system_prompt
     
-    def process_cell(self, cell: NotebookNode, llm_service: Optional[LLMService] = None) -> NotebookNode:
+    def process_cell(self, cell: NotebookNode, llm_service: Optional[OpenRouterLLMService] = None) -> NotebookNode:
         """Process a markdown cell using the LLM service."""
         if cell.cell_type != 'markdown' or llm_service is None:
             return cell
@@ -220,6 +298,43 @@ class TextProcessingTask(Task):
             log_msg(f"Error processing cell: {e}", Fore.RED, '❌')
         
         return cell
+    
+    def process_batch(self, cells: List[NotebookNode], llm_service: OpenRouterLLMService) -> List[NotebookNode]:
+        """Process multiple markdown cells in a batch for better throughput."""
+        # Filter cells that need processing
+        markdown_cells = []
+        cell_indices = []
+        
+        for i, cell in enumerate(cells):
+            if cell.cell_type == 'markdown' and not is_header_only(cell.source):
+                markdown_cells.append(cell)
+                cell_indices.append(i)
+        
+        if not markdown_cells:
+            return cells
+        
+        # Create batch tasks
+        tasks = [
+            {"system_prompt": self.system_prompt, "user_text": cell.source}
+            for cell in markdown_cells
+        ]
+        
+        # Process in batch
+        log_msg(f"\nBatch processing {len(tasks)} markdown cells", Fore.CYAN, '📦')
+        results = llm_service.process_batch(tasks)
+        
+        # Update cells with results
+        for i, (cell, result) in enumerate(zip(markdown_cells, results)):
+            log_msg(f"\nCell {i+1}/{len(markdown_cells)}", Fore.CYAN, '📝')
+            log_msg("Original:", Fore.RED, '📄')
+            log_msg(cell.source, Fore.RED)
+            log_msg("Rewritten:", Fore.GREEN, '✨')
+            log_msg(result, Fore.GREEN)
+            log_msg("-" * 80)
+            cell.source = result
+        
+        # Return the updated cells
+        return cells
 
 
 class CleanMarkdownTask(TextProcessingTask):
@@ -371,7 +486,7 @@ class FixColabLinks(Task):
                 
         return modified_source
     
-    def process_cell(self, cell: NotebookNode, llm_service: Optional[LLMService] = None) -> NotebookNode:
+    def process_cell(self, cell: NotebookNode, llm_service: Optional[OpenRouterLLMService] = None) -> NotebookNode:
         """Process a single cell."""
         if cell.cell_type != 'markdown':
             return cell
@@ -397,7 +512,7 @@ class FixColabLinks(Task):
         return cell
     
     def process_notebook(self, infile: str, outfile: str, 
-                         llm_service: Optional[LLMService], nb: NotebookNode) -> None:
+                         llm_service: Optional[OpenRouterLLMService], nb: NotebookNode) -> None:
         """Process an entire notebook."""
         self.notebook_path = os.path.abspath(infile)
         super().process_notebook(infile, outfile, llm_service, nb)
@@ -411,7 +526,7 @@ class DumpNotebookTask(Task):
         self.cell_number = 0
         self.markdown_content = []
     
-    def process_cell(self, cell: NotebookNode, llm_service: Optional[LLMService] = None) -> NotebookNode:
+    def process_cell(self, cell: NotebookNode, llm_service: Optional[OpenRouterLLMService] = None) -> NotebookNode:
         """Process a single cell by converting it to markdown format with special markers."""
         self.cell_number += 1
         
@@ -435,7 +550,7 @@ class DumpNotebookTask(Task):
         return cell
     
     def process_notebook(self, infile: str, outfile: str, 
-                         llm_service: Optional[LLMService], nb: NotebookNode) -> None:
+                         llm_service: Optional[OpenRouterLLMService], nb: NotebookNode) -> None:
         """Process entire notebook and output as markdown."""
         # Reset state
         self.cell_number = 0
@@ -501,10 +616,13 @@ def process_notebook(infile: str, task_name: str, output: Optional[str] = None) 
     llm_service = None
     if task_name in ("clean_markdown", "emojify"):
         try:
-            llm_service = LLMService(config)
-        except ImportError:
-            log_msg(f"Cannot run '{task_name}' task: required LLM dependencies not available.", Fore.RED, '❌')
-            log_msg("Install with: pip install 'notebroom[llm]'", Fore.YELLOW)
+            llm_service = OpenRouterLLMService(config)
+        except ValueError as e:
+            log_msg(f"Cannot run '{task_name}' task: {e}", Fore.RED, '❌')
+            log_msg("Set OPENROUTER_API_KEY environment variable", Fore.YELLOW)
+            sys.exit(1)
+        except Exception as e:
+            log_msg(f"Cannot run '{task_name}' task: {e}", Fore.RED, '❌')
             sys.exit(1)
     
     # Load the task
@@ -534,12 +652,24 @@ def process_notebook(infile: str, task_name: str, output: Optional[str] = None) 
     # Process cells
     if task_name in ["fix_colab_links", "dump_markdown"]:
         task.process_notebook(infile, outfile, llm_service, nb)
+    elif hasattr(task, 'process_batch') and llm_service is not None:
+        # Use batch processing for better throughput
+        try:
+            batch_size = config['batch_size']
+            for i in range(0, len(cells), batch_size):
+                batch_cells = cells[i:i+batch_size]
+                task.process_batch(batch_cells, llm_service)
+                log_msg(f"Processed batch {i//batch_size+1}/{(len(cells)+batch_size-1)//batch_size}", Fore.CYAN)
+        except Exception as e:
+            log_msg(f"Error during batch processing: {e}", Fore.RED, '❌')
+            # Fall back to individual processing
+            log_msg("Falling back to individual cell processing", Fore.YELLOW)
+            for cell in tqdm(cells):
+                task.process_cell(cell, llm_service)
     else:
-        with ThreadPoolExecutor(max_workers=config['num_workers']) as executor:
-            futures = [executor.submit(task.process_cell, cell, llm_service) for cell in cells]
-            results = [future.result() for future in tqdm(futures, total=len(cells))]
-        # Update notebook with processed cells
-        nb.cells = results
+        # Process cells individually
+        for cell in tqdm(cells):
+            task.process_cell(cell, llm_service)
         
     # Write the notebook (only for tasks that output notebooks)
     if task_name != "dump_markdown":
@@ -598,9 +728,9 @@ Examples:
     task_name = args.task
     infile = args.notebook
     
-    # Only check for API key if using LLM tasks
-    if not os.getenv("OPENAI_API_KEY") and task_name in ["clean_markdown", "emojify"]:
-        print(f"Error: OPENAI_API_KEY environment variable must be set for the {task_name} task.")
+    # Check for OpenRouter API key if using LLM tasks
+    if not os.getenv("OPENROUTER_API_KEY") and task_name in ["clean_markdown", "emojify"]:
+        print(f"Error: OPENROUTER_API_KEY environment variable must be set for the {task_name} task.")
         sys.exit(1)
     
     # Check if infile is a directory
