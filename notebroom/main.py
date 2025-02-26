@@ -360,40 +360,31 @@ class FixColabLinks(Task):
         self.notebook_path = os.path.abspath(infile)
         super().process_notebook(infile, outfile, llm, nb)
 
-# --- Main Program ---
-def main():
-    available_tasks = ["clean_markdown", "emojify", "fix_colab_links"]
-    parser = argparse.ArgumentParser(
-        description="Jupyter notebook tool with task-based processing using LLMs.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument("notebook", help="Path to the input notebook file.")
-    parser.add_argument(
-        "task",
-        help="Name of the task to execute. Available tasks:\n" + "\n".join(available_tasks),
-        nargs='?',
-        default=None
-    )
-    parser.add_argument("-o", "--output", help="Path to the output notebook file.", default=None)
-    args = parser.parse_args()
+# --- Utility functions ---
+def find_notebooks(directory):
+    """Find all .ipynb files in a directory, recursively."""
+    notebooks = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.ipynb'):
+                notebooks.append(os.path.join(root, file))
+    return notebooks
 
-    if not args.task:
-        parser.print_help()
-        sys.exit(1)
-
-    if args.task not in available_tasks:
-        print(f"Error: Unknown task '{args.task}'. Available tasks are: {', '.join(available_tasks)}")
-        sys.exit(1)
-
-    if not os.getenv("OPENAI_API_KEY") and args.task == "clean_markdown":
-        print("Error: OPENAI_API_KEY environment variable must be set for the clean_markdown task.")
-        sys.exit(1)
-
-    infile = args.notebook
-    task_name = args.task
+def process_notebook(infile, task_name, output=None):
+    """Process a single notebook with the given task."""
+    # Determine output file path
     base, ext = os.path.splitext(infile)
-    outfile = args.output if args.output else f"{base}.clean{ext}"
-
+    if output:
+        if os.path.isdir(output):
+            # If output is a directory, place the file there with original name
+            outfile = os.path.join(output, os.path.basename(infile))
+        else:
+            # Otherwise use the specified output file
+            outfile = output
+    else:
+        # Default behavior: append .clean to filename
+        outfile = f"{base}.clean{ext}"
+    
     # Initialize LLM (only if needed)
     llm = None
     if task_name == "clean_markdown" or task_name == "emojify":
@@ -417,13 +408,19 @@ def main():
         task = FixColabLinks(CONFIG)
     else:
         print(f"Error: Unknown task '{task_name}'.")
-        sys.exit(1)
+        return
 
     # Load notebook
-    nb = nbformat.read(infile, as_version=4)
-    cells = nb.cells
+    try:
+        nb = nbformat.read(infile, as_version=4)
+        cells = nb.cells
+    except Exception as e:
+        log_msg(f"Error loading notebook {infile}: {e}", Fore.RED, '❌')
+        return
 
-    # Process cells in parallel (except for fix_colab_links which needs notebook context)
+    log_msg(f"Processing {infile} with task '{task_name}'...", Fore.CYAN)
+    
+    # Process cells
     if task_name == "fix_colab_links":
         task.process_notebook(infile, outfile, llm, nb)
     else:
@@ -434,8 +431,74 @@ def main():
         nb.cells = results
 
     # Write the notebook
-    nbformat.write(nb, outfile)
-    log_msg(f"Processed notebook saved to {outfile}", Fore.GREEN, '💾')
+    try:
+        nbformat.write(nb, outfile)
+        log_msg(f"Processed notebook saved to {outfile}", Fore.GREEN, '💾')
+    except Exception as e:
+        log_msg(f"Error saving notebook {outfile}: {e}", Fore.RED, '❌')
+
+# --- Main Program ---
+def main():
+    available_tasks = ["clean_markdown", "emojify", "fix_colab_links"]
+    parser = argparse.ArgumentParser(
+        description="Jupyter notebook tool with task-based processing using LLMs.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument("notebook", help="Path to the input notebook file or directory containing notebooks.")
+    parser.add_argument(
+        "task",
+        help="Name of the task to execute. Available tasks:\n" + "\n".join(available_tasks),
+        nargs='?',
+        default=None
+    )
+    parser.add_argument("-o", "--output", help="Path to the output notebook file or directory.", default=None)
+    args = parser.parse_args()
+
+    if not args.task:
+        parser.print_help()
+        sys.exit(1)
+
+    if args.task not in available_tasks:
+        print(f"Error: Unknown task '{args.task}'. Available tasks are: {', '.join(available_tasks)}")
+        sys.exit(1)
+
+    if not os.getenv("OPENAI_API_KEY") and args.task == "clean_markdown":
+        print("Error: OPENAI_API_KEY environment variable must be set for the clean_markdown task.")
+        sys.exit(1)
+
+    infile = args.notebook
+    task_name = args.task
+    
+    # Check if infile is a directory
+    if os.path.isdir(infile):
+        notebooks = find_notebooks(infile)
+        if not notebooks:
+            print(f"No .ipynb files found in {infile}")
+            sys.exit(1)
+        
+        # Prompt for confirmation
+        print(f"Found {len(notebooks)} notebook files in {infile}:")
+        for nb in notebooks[:5]:  # Show first 5 notebooks
+            print(f" - {os.path.basename(nb)}")
+        if len(notebooks) > 5:
+            print(f" ... and {len(notebooks) - 5} more")
+        
+        confirm = input(f"Process all {len(notebooks)} notebooks with task '{task_name}'? [y/N] ")
+        if confirm.lower() != 'y':
+            print("Operation cancelled.")
+            sys.exit(0)
+            
+        # Check output option for multiple notebooks
+        if args.output and not os.path.isdir(args.output):
+            print("Error: When processing multiple notebooks, output (-o) must be a directory.")
+            sys.exit(1)
+            
+        # Process each notebook
+        for nb_file in notebooks:
+            process_notebook(nb_file, task_name, args.output)
+    else:
+        # Process single notebook
+        process_notebook(infile, task_name, args.output)
 
 if __name__ == "__main__":
     main()
