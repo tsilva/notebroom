@@ -46,11 +46,11 @@ OPENROUTER_API_KEY=your_api_key_here
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `OPENROUTER_API_KEY` | Your OpenRouter API key | (required) |
-| `NOTEBROOM_MODEL` | Model to use | `anthropic/claude-3-7-sonnet` |
-| `NOTEBROOM_MAX_TOKENS` | Max tokens in response | `1000` |
-| `NOTEBROOM_TEMPERATURE` | Temperature setting | `0.2` |
-| `NOTEBROOM_BATCH_SIZE` | Batch size for processing | `4` |
-| `NOTEBROOM_NUM_WORKERS` | Number of worker threads | `8` |
+| `MODEL` | Model to use | `anthropic/claude-3-7-sonnet` |
+| `MAX_TOKENS` | Max tokens in response | `1000` |
+| `TEMPERATURE` | Temperature setting | `0.2` |
+| `BATCH_SIZE` | Batch size for processing | `4` |
+| `NUM_WORKERS` | Number of worker threads | `8` |
 
 ## 🛠️ Usage
 
@@ -130,13 +130,13 @@ Notebroom can be configured using environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NOTEBROOM_MODEL` | LLM model to use | `anthropic/claude-3-7-sonnet` |
-| `NOTEBROOM_MAX_TOKENS` | Maximum tokens for LLM responses | `1000` |
-| `NOTEBROOM_TEMPERATURE` | Temperature for LLM responses | `0.2` |
-| `NOTEBROOM_NUM_WORKERS` | Number of concurrent workers | `8` |
-| `NOTEBROOM_TPM_LIMIT` | Tokens per minute limit | `10000000` |
-| `NOTEBROOM_RPM_LIMIT` | Requests per minute limit | `100` |
-| `NOTEBROOM_MAX_RETRIES` | Maximum retries for failed LLM calls | `5` |
+| `MODEL` | LLM model to use | `anthropic/claude-3-7-sonnet` |
+| `MAX_TOKENS` | Maximum tokens for LLM responses | `1000` |
+| `TEMPERATURE` | Temperature for LLM responses | `0.2` |
+| `NUM_WORKERS` | Number of concurrent workers | `8` |
+| `TPM_LIMIT` | Tokens per minute limit | `100000` |
+| `RPM_LIMIT` | Requests per minute limit | `60` |
+| `MAX_RETRIES` | Maximum retries for failed LLM calls | `5` |
 
 ## 📝 Examples
 
