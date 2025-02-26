@@ -1,6 +1,3 @@
-- [x] Fix "open in colab" links
-- [x] Target multiple notebooks in a single run
-- [ ] Files suffix should be name of executed task
 - [ ] Improve command line
 - [ ] Dump notebook as plain text to send to LLM
 - [ ] Support running multiple tasks in sequence

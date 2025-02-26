@@ -17,11 +17,6 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain_google_vertexai import ChatVertexAI
-from langchain.schema import BaseMessage
-from ratelimit import limits
-from backoff import on_exception, expo
 from colorama import Fore, Style, init
 import nbformat
 from nbformat import NotebookNode
@@ -101,22 +96,38 @@ class LLMService:
         self.config = config
         self.rate_limiter = TokenRateLimiter(config)
         
-        # Initialize the LLM model
-        model_name = config['model']
-        model_params = {
-            'temperature': config['temp'],
-            'max_tokens': config['max_tokens']
-        }
-        
-        if "gemini" in model_name:
-            self.llm = ChatVertexAI(model_name=model_name, 
-                                   convert_system_message_to_human=True, 
-                                   **model_params)
-        else:
-            self.llm = ChatOpenAI(model_name=model_name, **model_params)
+        # Lazy import LLM dependencies only when needed
+        try:
+            from ratelimit import limits
+            from backoff import on_exception, expo
+            
+            if "gemini" in config['model']:
+                from langchain_google_vertexai import ChatVertexAI
+                self.llm = ChatVertexAI(
+                    model_name=config['model'],
+                    convert_system_message_to_human=True,
+                    temperature=config['temp'],
+                    max_tokens=config['max_tokens']
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                self.llm = ChatOpenAI(
+                    model_name=config['model'],
+                    temperature=config['temp'],
+                    max_tokens=config['max_tokens']
+                )
+                
+            # Define decorated methods
+            self.call_llm = limits(calls=100, period=60)(self._call_llm)
+            self.process_text = on_exception(
+                expo, Exception, max_tries=5, factor=3, jitter=random.random
+            )(self._process_text)
+            
+        except ImportError as e:
+            log_msg(f"Failed to import LLM dependencies: {e}", Fore.RED, '❌')
+            raise
     
-    @limits(calls=100, period=60)
-    def call_llm(self, messages: List[Dict[str, str]]) -> str:
+    def _call_llm(self, messages: List[Dict[str, str]]) -> str:
         """Call the LLM with rate limiting and error handling."""
         try:
             result = self.llm.invoke(messages)
@@ -129,8 +140,7 @@ class LLMService:
             time.sleep(self.config['error_throttle_time'])
             raise e
     
-    @on_exception(expo, Exception, max_tries=5, factor=3, jitter=random.random)
-    def process_text(self, system_prompt: str, user_text: str) -> str:
+    def _process_text(self, system_prompt: str, user_text: str) -> str:
         """Process text using the LLM with retries and backoff."""
         try:
             start_time = time.time()
@@ -326,8 +336,11 @@ class FixColabLinks(Task):
             
         # Patterns for matching Colab links
         patterns = [
+            # Markdown style links
             r'\[(?:Open|Run|View) (?:in|on) Colab\]\((https?://colab\.research\.google\.com/[^\)]+)\)',
-            r'\[\!\[(?:Open|Run|View) (?:in|on) Colab\]\(https?://[^\)]+\)\]\((https?://colab\.research\.google\.com/[^\)]+)\)'
+            r'\[\!\[(?:Open|Run|View) (?:in|on) Colab\]\(https?://[^\)]+\)\]\((https?://colab\.research\.google\.com/[^\)]+)\)',
+            # HTML style links with image
+            r'<a href="(https?://colab\.research\.google\.com/[^"]+)"[^>]*>.*?</a>'
         ]
         
         colab_url = self.create_colab_url(notebook_path)
@@ -335,15 +348,25 @@ class FixColabLinks(Task):
             return cell_source
             
         modified_source = cell_source
-        for pattern in patterns:
+        
+        # Handle different link patterns
+        for i, pattern in enumerate(patterns):
             matches = re.finditer(pattern, cell_source)
             for match in matches:
                 full_match = match.group(0)
-                # Different groups for different patterns
-                old_link = match.group(2) if "![" in full_match else match.group(1)
-                    
-                # Create replacement with same format but updated URL
-                replacement = full_match.replace(old_link, colab_url)
+                
+                # Extract the URL based on pattern type
+                if i == 0:  # Simple markdown link
+                    old_link = match.group(1)
+                    replacement = full_match.replace(old_link, colab_url)
+                elif i == 1:  # Markdown link with image
+                    old_link = match.group(2)
+                    replacement = full_match.replace(old_link, colab_url)
+                elif i == 2:  # HTML link
+                    old_link = match.group(1)
+                    # For HTML links, we need to construct a proper HTML replacement
+                    replacement = f'<a href="{colab_url}" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>'
+                
                 modified_source = modified_source.replace(full_match, replacement)
                 
         return modified_source
@@ -353,7 +376,8 @@ class FixColabLinks(Task):
         if cell.cell_type != 'markdown':
             return cell
             
-        if not any(pattern in cell.source.lower() for pattern in ['colab', 'open in']):
+        # Improve detection of colab links with broader patterns
+        if not any(pattern in cell.source.lower() for pattern in ['colab', 'href', '<a ']):
             return cell
             
         log_msg(f"\nChecking cell for Colab links:", Fore.CYAN, '🔍')
@@ -397,7 +421,12 @@ def process_notebook(infile: str, task_name: str, output: Optional[str] = None) 
     # Initialize LLM service if needed
     llm_service = None
     if task_name in ("clean_markdown", "emojify"):
-        llm_service = LLMService(config)
+        try:
+            llm_service = LLMService(config)
+        except ImportError:
+            log_msg(f"Cannot run '{task_name}' task: required LLM dependencies not available.", Fore.RED, '❌')
+            log_msg("Install with: pip install 'notebroom[llm]'", Fore.YELLOW)
+            sys.exit(1)
     
     # Load the task
     task_map = {
@@ -465,8 +494,9 @@ def main():
         print(f"Error: Unknown task '{args.task}'. Available tasks are: {', '.join(available_tasks)}")
         sys.exit(1)
         
-    if not os.getenv("OPENAI_API_KEY") and args.task == "clean_markdown":
-        print("Error: OPENAI_API_KEY environment variable must be set for the clean_markdown task.")
+    # Only check for API key if using LLM tasks
+    if not os.getenv("OPENAI_API_KEY") and args.task in ["clean_markdown", "emojify"]:
+        print(f"Error: OPENAI_API_KEY environment variable must be set for the {args.task} task.")
         sys.exit(1)
         
     infile = args.notebook
