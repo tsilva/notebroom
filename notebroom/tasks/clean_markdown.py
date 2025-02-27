@@ -1,19 +1,77 @@
-"""Task for cleaning markdown cells in a Jupyter notebook."""
+"""Task for cleaning and formatting markdown cells."""
+from notebroom.tasks.base import TextProcessingTask
 
-from .base import TextProcessingTask
+PROMPT = """
+You are a Jupyter Notebook markdown formatter. Your task is to enhance the readability, structure, and correctness of markdown text while keeping as close as possible to the original content, meaning, and flow.
 
-PROMPT = """Your task is to make existing educational content more concise and clear.
-Important rules:
-- DO NOT add new information or change meaning.
-- DO NOT modify section headers.
-- FOCUS on making the given text more concise while preserving all information.
-- ENSURE clarity and educational value.
-- MAINTAIN technical accuracy.
-Return ONLY the rewritten markdown cell. Do not include any introductory or concluding remarks.
+Guidelines:  
+- Preserve the original message, intent, and style; make changes only to improve clarity or fix errors.  
+- Correct markdown syntax errors (e.g., improper headers, lists, or code blocks).  
+- Fix typos and grammar mistakes without altering the intended meaning.  
+- Use a logical heading hierarchy (# for h1, ## for h2, ### for h3).  
+- Ensure consistent spacing between sections (e.g., one blank line between elements).  
+- Break text into paragraphs where it improves readability, while maintaining the original flow.  
+- Properly format code blocks using triple backticks (```).  
+- Fix broken or misaligned lists and indentation.  
+- Retain all original links, images, and embedded content unchanged.  
+- If the original text is already clear, grammatically correct, and well-formatted, return it unchanged.  
+- Provide concise output focused solely on the improved markdown text.
 """.strip()
-    
+
 class CleanMarkdownTask(TextProcessingTask):
-    """Task for cleaning markdown cells in a Jupyter notebook."""
+    """Task for cleaning and formatting markdown cells in notebooks."""
+    
+    # Define task metadata
+    task_id = "clean_markdown"
+    requires_llm = True
     
     def __init__(self, config):
-        super().__init__(config, self.PROMPT)
+        super().__init__(config)
+        self.system_prompt = PROMPT
+    
+    def get_supported_cell_types(self):
+        """Only clean markdown cells."""
+        return ['markdown']
+    
+    def process_text(self, text, llm_service=None):
+        """Clean markdown text using LLM."""
+        if not text.strip() or not llm_service:
+            # Skip empty cells or if no LLM service is available
+            return text
+        
+        # Send to LLM for cleaning
+        return llm_service.process_text(self.system_prompt, text)
+    
+    def process_batch(self, cells, llm_service=None):
+        """Process multiple cells in batch for better throughput."""
+        if not llm_service:
+            # Fall back to individual processing if no LLM service
+            super().process_batch(cells, llm_service)
+            return
+        
+        # Filter for markdown cells only
+        markdown_cells = [cell for cell in cells if cell['cell_type'] == 'markdown']
+        if not markdown_cells:
+            return
+        
+        # Prepare batch requests
+        batch_tasks = []
+        for cell in markdown_cells:
+            if cell['source'].strip():
+                batch_tasks.append({
+                    'system_prompt': self.system_prompt,
+                    'user_text': cell['source']
+                })
+        
+        if not batch_tasks:
+            return
+            
+        # Process all in batch
+        results = llm_service.process_batch(batch_tasks)
+        
+        # Update cells with results
+        result_index = 0
+        for cell in markdown_cells:
+            if cell['source'].strip():
+                cell['source'] = results[result_index]
+                result_index += 1
