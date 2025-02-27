@@ -588,6 +588,72 @@ class DumpNotebookTask(Task):
             log_msg(f"Error writing markdown file {outfile}: {e}", Fore.RED, '❌')
 
 
+class StandardizeIndentationTask(Task):
+    """Task for standardizing Python code indentation to 2 spaces."""
+    
+    def __init__(self, config: Config):
+        super().__init__(config)
+    
+    def process_cell(self, cell: NotebookNode, llm_service: Optional[OpenRouterLLMService] = None) -> NotebookNode:
+        """Process a code cell to standardize indentation."""
+        if cell.cell_type != 'code':
+            return cell
+            
+        source_lines = cell.source.split('\n')
+        standardized_lines = []
+        
+        for line in source_lines:
+            if not line.strip():  # Preserve empty lines
+                standardized_lines.append(line)
+                continue
+                
+            # Count leading whitespace and determine indentation level
+            original_line = line
+            leading_whitespace = len(line) - len(line.lstrip())
+            
+            if leading_whitespace == 0:
+                # No indentation, keep the line as is
+                standardized_lines.append(line)
+                continue
+                
+            # Extract the indentation part and content part
+            indentation = line[:leading_whitespace]
+            content = line[leading_whitespace:]
+            
+            # Calculate indentation level
+            if '\t' in indentation:
+                # Replace tabs with 4 spaces to count indentation level
+                expanded_indent = indentation.replace('\t', ' ' * 4)
+                indent_level = len(expanded_indent) // 4
+            else:
+                # For spaces, estimate the level based on common patterns (2, 4, or 8 spaces)
+                if leading_whitespace % 4 == 0:
+                    indent_level = leading_whitespace // 4
+                elif leading_whitespace % 2 == 0:
+                    indent_level = leading_whitespace // 2
+                else:
+                    # Odd number of spaces, use a best guess
+                    indent_level = round(leading_whitespace / 4)
+            
+            # Create standardized line with 2 spaces per indentation level
+            standardized_line = ' ' * (2 * indent_level) + content
+            standardized_lines.append(standardized_line)
+        
+        # Update cell source with standardized indentation
+        new_source = '\n'.join(standardized_lines)
+        
+        if new_source != cell.source:
+            log_msg("\nStandardized indentation in code cell:", Fore.CYAN, '🔧')
+            log_msg("Original:", Fore.RED, '📄')
+            log_msg(cell.source, Fore.RED)
+            log_msg("Standardized:", Fore.GREEN, '✨')
+            log_msg(new_source, Fore.GREEN)
+            log_msg("-" * 80)
+            cell.source = new_source
+            
+        return cell
+
+
 def process_notebook(infile: str, task_name: str, output: Optional[str] = None) -> None:
     """Process a single notebook with the given task."""
     # Determine output file path
@@ -630,7 +696,8 @@ def process_notebook(infile: str, task_name: str, output: Optional[str] = None) 
         "clean_markdown": CleanMarkdownTask(config),
         "emojify": EmojifyTask(config),
         "fix_colab_links": FixColabLinks(config),
-        "dump_markdown": DumpNotebookTask(config)
+        "dump_markdown": DumpNotebookTask(config),
+        "standardize_indentation": StandardizeIndentationTask(config)
     }
     
     if task_name not in task_map:
@@ -682,7 +749,7 @@ def process_notebook(infile: str, task_name: str, output: Optional[str] = None) 
 
 def main():
     """Main entry point for the Notebroom CLI."""
-    available_tasks = ["clean_markdown", "emojify", "fix_colab_links", "dump_markdown"]
+    available_tasks = ["clean_markdown", "emojify", "fix_colab_links", "dump_markdown", "standardize_indentation"]
     
     # Create a more intuitive command-line interface
     parser = argparse.ArgumentParser(
