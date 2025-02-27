@@ -15,6 +15,7 @@ from colorama import Fore, init
 import nbformat
 import tiktoken
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 from notebroom.tasks import TASK_MAP, AVAILABLE_TASKS, LLM_REQUIRED_TASKS
 from notebroom.utils import log_msg, find_notebooks
@@ -446,28 +447,15 @@ Examples:
   notebroom dump_markdown notebook.ipynb -o notebook_for_llm.md
   
   # Run a sequence of tasks from a config file
-  notebroom --config task_config.yaml path/to/notebook.ipynb
+  notebroom task_config.yaml path/to/notebook.ipynb
         """
     )
     
-    # Create an argument group for the main action (task or config)
-    action_group = parser.add_mutually_exclusive_group(required=True)
-    
-    # Add task argument as optional now (mutually exclusive with config)
-    action_group.add_argument(
+    # Add task argument - can be either a task name or a path to a config file
+    parser.add_argument(
         "task",
         metavar="TASK",
-        choices=AVAILABLE_TASKS,
-        help="Task to execute. Available tasks: " + ", ".join(AVAILABLE_TASKS),
-        nargs="?",
-    )
-    
-    # Add config file argument
-    action_group.add_argument(
-        "--config",
-        "-c",
-        metavar="CONFIG_FILE",
-        help="Path to a YAML configuration file with tasks to execute"
+        help="Task to execute or path to a YAML configuration file with tasks. Available tasks: " + ", ".join(AVAILABLE_TASKS),
     )
     
     # Notebook path is always required
@@ -486,8 +474,14 @@ Examples:
     
     # Parse arguments
     args = parser.parse_args()
-    
     infile = args.notebook
+    
+    # Check if the task is a YAML config file or a task name
+    is_config_file = False
+    if os.path.isfile(args.task) and (args.task.endswith('.yaml') or args.task.endswith('.yml')):
+        is_config_file = True
+    elif args.task not in AVAILABLE_TASKS:
+        parser.error(f"'{args.task}' is not a recognized task or a valid YAML config file. Available tasks: {', '.join(AVAILABLE_TASKS)}")
     
     # Handle directory or file input
     if os.path.isdir(infile):
@@ -508,9 +502,9 @@ Examples:
             print("Error: When processing multiple notebooks, output (-o) must be a directory.")
             sys.exit(1)
         
-        if args.config:
+        if is_config_file:
             # Process with config file
-            config_data = load_config_file(args.config)
+            config_data = load_config_file(args.task)
             tasks = config_data['tasks']
             
             confirm = input(f"Process all {len(notebooks)} notebooks with {len(tasks)} tasks from config? [y/N] ")
@@ -545,9 +539,9 @@ Examples:
             print(f"Error: Notebook file not found: {infile}")
             sys.exit(1)
             
-        if args.config:
+        if is_config_file:
             # Process with config file
-            config_data = load_config_file(args.config)
+            config_data = load_config_file(args.task)
             tasks = config_data['tasks']
             process_notebook_with_tasks(infile, tasks, args.output)
         else:
@@ -564,3 +558,4 @@ Examples:
 
 if __name__ == "__main__":
     main()
+

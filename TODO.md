@@ -1,2 +1,0 @@
-- [ ] Improve command line
-- [ ] Support running multiple tasks in sequence
