@@ -14,6 +14,7 @@ import re
 import subprocess
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+import yaml
 
 from dotenv import load_dotenv
 from colorama import Fore, Style, init
@@ -654,6 +655,127 @@ class StandardizeIndentationTask(Task):
         return cell
 
 
+def load_config_file(config_path: str) -> Dict[str, Any]:
+    """Load and parse a YAML configuration file."""
+    try:
+        with open(config_path, 'r') as f:
+            config_data = yaml.safe_load(f)
+        
+        # Validate the config file has a tasks list
+        if not config_data or not isinstance(config_data, dict):
+            raise ValueError("Configuration file must contain a valid YAML document")
+        
+        if 'tasks' not in config_data or not isinstance(config_data['tasks'], list):
+            raise ValueError("Configuration file must contain a 'tasks' list")
+        
+        return config_data
+    except Exception as e:
+        log_msg(f"Error loading configuration file: {e}", Fore.RED, '❌')
+        sys.exit(1)
+
+def process_notebook_with_tasks(notebook_path: str, tasks: List[Dict[str, Any]], output: Optional[str] = None) -> None:
+    """Process a notebook with a sequence of tasks from a configuration file."""
+    # Determine output file path
+    outfile = output if output else notebook_path
+    
+    # Initialize configuration
+    config = Config()
+    
+    # Initialize LLM service if needed for any task
+    llm_service = None
+    llm_required_tasks = ["clean_markdown", "emojify"]
+    if any(task['name'] in llm_required_tasks for task in tasks):
+        try:
+            llm_service = OpenRouterLLMService(config)
+        except ValueError as e:
+            log_msg(f"Cannot run LLM-based tasks: {e}", Fore.RED, '❌')
+            log_msg("Set OPENROUTER_API_KEY environment variable", Fore.YELLOW)
+            sys.exit(1)
+        except Exception as e:
+            log_msg(f"Cannot run LLM-based tasks: {e}", Fore.RED, '❌')
+            sys.exit(1)
+    
+    # Task mapping
+    task_map = {
+        "clean_markdown": CleanMarkdownTask(config),
+        "emojify": EmojifyTask(config),
+        "fix_colab_links": FixColabLinks(config),
+        "dump_markdown": DumpNotebookTask(config),
+        "standardize_indentation": StandardizeIndentationTask(config)
+    }
+    
+    # Track executed tasks for summary
+    executed_tasks = []
+    
+    # Load the notebook initially
+    try:
+        nb = nbformat.read(notebook_path, as_version=4)
+    except Exception as e:
+        log_msg(f"Error loading notebook {notebook_path}: {e}", Fore.RED, '❌')
+        return
+    
+    log_msg(f"Processing {notebook_path} with {len(tasks)} tasks...", Fore.CYAN, '🔄')
+    
+    # Process each task in sequence
+    for task_config in tasks:
+        task_name = task_config['name']
+        
+        # Check if task exists
+        if task_name not in task_map:
+            log_msg(f"Unknown task '{task_name}', skipping", Fore.YELLOW, '⚠️')
+            continue
+        
+        log_msg(f"Executing task '{task_name}'...", Fore.CYAN, '🔍')
+        task = task_map[task_name]
+        
+        # Process notebook with current task
+        if task_name in ["fix_colab_links", "dump_markdown"]:
+            # These tasks need special handling for output
+            if task_name == "dump_markdown":
+                # For dump_markdown, change extension to .md
+                md_outfile = os.path.splitext(outfile)[0] + ".md"
+                task.process_notebook(notebook_path, md_outfile, llm_service, nb)
+            else:
+                task.process_notebook(notebook_path, outfile, llm_service, nb)
+        elif hasattr(task, 'process_batch') and llm_service is not None:
+            # Use batch processing for better throughput
+            try:
+                batch_size = config['batch_size']
+                cells = nb.cells
+                for i in range(0, len(cells), batch_size):
+                    batch_cells = cells[i:i+batch_size]
+                    task.process_batch(batch_cells, llm_service)
+            except Exception as e:
+                log_msg(f"Error during batch processing: {e}", Fore.RED, '❌')
+                # Fall back to individual processing
+                log_msg("Falling back to individual cell processing", Fore.YELLOW)
+                for cell in nb.cells:
+                    task.process_cell(cell, llm_service)
+        else:
+            # Process cells individually
+            for cell in nb.cells:
+                task.process_cell(cell, llm_service)
+        
+        # Save the notebook after each task (except for dump_markdown which outputs to a different file)
+        if task_name != "dump_markdown":
+            try:
+                nbformat.write(nb, outfile)
+                log_msg(f"Saved notebook after task '{task_name}'", Fore.GREEN, '💾')
+            except Exception as e:
+                log_msg(f"Error saving notebook after task '{task_name}': {e}", Fore.RED, '❌')
+                continue
+        
+        # Add to executed tasks list
+        executed_tasks.append(task_name)
+    
+    # Print summary of executed tasks
+    if executed_tasks:
+        log_msg("\nTasks completed:", Fore.CYAN, '📋')
+        for task_name in executed_tasks:
+            log_msg(f"  {task_name}", Fore.GREEN, '✅')
+    else:
+        log_msg("\nNo tasks were executed successfully.", Fore.YELLOW, '⚠️')
+
 def process_notebook(infile: str, task_name: str, output: Optional[str] = None) -> None:
     """Process a single notebook with the given task."""
     # Determine output file path
@@ -765,17 +887,33 @@ Examples:
   
   # Export notebook to markdown for LLM processing
   notebroom dump_markdown notebook.ipynb -o notebook_for_llm.md
+  
+  # Run a sequence of tasks from a config file
+  notebroom --config task_config.yaml path/to/notebook.ipynb
         """
     )
     
-    # Make the task the first argument for a more intuitive interface
-    parser.add_argument(
+    # Create an argument group for the main action (task or config)
+    action_group = parser.add_mutually_exclusive_group(required=True)
+    
+    # Add task argument as optional now (mutually exclusive with config)
+    action_group.add_argument(
         "task",
         metavar="TASK",
         choices=available_tasks,
-        help="Task to execute. Available tasks: " + ", ".join(available_tasks)
+        help="Task to execute. Available tasks: " + ", ".join(available_tasks),
+        nargs="?",
     )
     
+    # Add config file argument
+    action_group.add_argument(
+        "--config",
+        "-c",
+        metavar="CONFIG_FILE",
+        help="Path to a YAML configuration file with tasks to execute"
+    )
+    
+    # Notebook path is always required
     parser.add_argument(
         "notebook",
         metavar="NOTEBOOK_PATH",
@@ -792,15 +930,9 @@ Examples:
     # Parse arguments
     args = parser.parse_args()
     
-    task_name = args.task
     infile = args.notebook
     
-    # Check for OpenRouter API key if using LLM tasks
-    if not os.getenv("OPENROUTER_API_KEY") and task_name in ["clean_markdown", "emojify"]:
-        print(f"Error: OPENROUTER_API_KEY environment variable must be set for the {task_name} task.")
-        sys.exit(1)
-    
-    # Check if infile is a directory
+    # Handle directory or file input
     if os.path.isdir(infile):
         notebooks = find_notebooks(infile)
         if not notebooks:
@@ -813,28 +945,65 @@ Examples:
             print(f" - {os.path.basename(nb)}")
         if len(notebooks) > 5:
             print(f" ... and {len(notebooks) - 5} more")
-            
-        confirm = input(f"Process all {len(notebooks)} notebooks with task '{task_name}'? [y/N] ")
-        if confirm.lower() != 'y':
-            print("Operation cancelled.")
-            sys.exit(0)
-                
+        
         # Check output option for multiple notebooks
         if args.output and not os.path.isdir(args.output):
             print("Error: When processing multiple notebooks, output (-o) must be a directory.")
             sys.exit(1)
+        
+        if args.config:
+            # Process with config file
+            config_data = load_config_file(args.config)
+            tasks = config_data['tasks']
+            
+            confirm = input(f"Process all {len(notebooks)} notebooks with {len(tasks)} tasks from config? [y/N] ")
+            if confirm.lower() != 'y':
+                print("Operation cancelled.")
+                sys.exit(0)
                 
-        # Process each notebook
-        for nb_file in notebooks:
-            process_notebook(nb_file, task_name, args.output)
+            # Process each notebook with all tasks in sequence
+            for nb_file in notebooks:
+                output_path = os.path.join(args.output, os.path.basename(nb_file)) if args.output else None
+                process_notebook_with_tasks(nb_file, tasks, output_path)
+        else:
+            # Process with single task
+            task_name = args.task
+            
+            # Check for OpenRouter API key if using LLM tasks
+            if not os.getenv("OPENROUTER_API_KEY") and task_name in ["clean_markdown", "emojify"]:
+                print(f"Error: OPENROUTER_API_KEY environment variable must be set for the {task_name} task.")
+                sys.exit(1)
+                
+            confirm = input(f"Process all {len(notebooks)} notebooks with task '{task_name}'? [y/N] ")
+            if confirm.lower() != 'y':
+                print("Operation cancelled.")
+                sys.exit(0)
+                
+            # Process each notebook with the single task
+            for nb_file in notebooks:
+                process_notebook(nb_file, task_name, args.output)
     else:
         # Check if file exists
         if not os.path.exists(infile):
             print(f"Error: Notebook file not found: {infile}")
             sys.exit(1)
             
-        # Process single notebook
-        process_notebook(infile, task_name, args.output)
+        if args.config:
+            # Process with config file
+            config_data = load_config_file(args.config)
+            tasks = config_data['tasks']
+            process_notebook_with_tasks(infile, tasks, args.output)
+        else:
+            # Process with single task
+            task_name = args.task
+            
+            # Check for OpenRouter API key if using LLM tasks
+            if not os.getenv("OPENROUTER_API_KEY") and task_name in ["clean_markdown", "emojify"]:
+                print(f"Error: OPENROUTER_API_KEY environment variable must be set for the {task_name} task.")
+                sys.exit(1)
+                
+            # Process single notebook with the single task
+            process_notebook(infile, task_name, args.output)
 
 if __name__ == "__main__":
     main()
