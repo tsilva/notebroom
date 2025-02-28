@@ -4,71 +4,79 @@ from nbformat import NotebookNode
 from typing import Optional
 from colorama import Fore
 
-from .base import Task
+from .base import Task, BaseTask
 from notebroom.utils import log_msg
 
 
-class StandardizeIndentationTask(Task):
-    """Task for standardizing Python code indentation to 2 spaces."""
+class StandardizeIndentationTask(BaseTask):
+    """Task to standardize Python code indentation to 2 spaces."""
     
-    def __init__(self, config):
-        super().__init__(config)
+    task_name = "standardize_indentation"
     
-    def process_cell(self, cell: NotebookNode, llm_service: Optional = None) -> NotebookNode:
-        """Process a code cell to standardize indentation."""
-        if cell.cell_type != 'code':
-            return cell
+    def run(self, notebook_content):
+        """
+        Standardize Python code indentation in notebook cells.
+        
+        Args:
+            notebook_content: The notebook content to process
             
-        source_lines = cell.source.split('\n')
+        Returns:
+            Processed notebook content with standardized indentation
+        """
+        # Implementation for standardizing indentation
+        # This is a placeholder - implement the actual logic based on your requirements
+        for cell in notebook_content.get('cells', []):
+            if cell['cell_type'] == 'code':
+                cell['source'] = self._standardize_indentation(cell['source'])
+        
+        return notebook_content
+    
+    def _standardize_indentation(self, source):
+        """
+        Convert indentation to 2 spaces in Python code.
+        
+        Args:
+            source: The source code as a string or list of lines
+            
+        Returns:
+            Source code with standardized indentation
+        """
+        if not source:
+            return source
+            
+        # Convert list of lines to a single string if needed
+        if isinstance(source, list):
+            content = ''.join(source)
+        else:
+            content = source
+            
+        # Split into lines for processing
+        lines = content.split('\n')
         standardized_lines = []
         
-        for line in source_lines:
-            if not line.strip():  # Preserve empty lines
-                standardized_lines.append(line)
-                continue
-                
-            # Count leading whitespace and determine indentation level
-            original_line = line
+        for line in lines:
+            # Count leading spaces/tabs
             leading_whitespace = len(line) - len(line.lstrip())
-            
-            if leading_whitespace == 0:
-                # No indentation, keep the line as is
-                standardized_lines.append(line)
-                continue
-                
-            # Extract the indentation part and content part
-            indentation = line[:leading_whitespace]
-            content = line[leading_whitespace:]
-            
-            # Calculate indentation level
-            if '\t' in indentation:
-                # Replace tabs with 4 spaces to count indentation level
-                expanded_indent = indentation.replace('\t', ' ' * 4)
-                indent_level = len(expanded_indent) // 4
-            else:
-                # For spaces, estimate the level based on common patterns (2, 4, or 8 spaces)
-                if leading_whitespace % 4 == 0:
-                    indent_level = leading_whitespace // 4
-                elif leading_whitespace % 2 == 0:
-                    indent_level = leading_whitespace // 2
+            if leading_whitespace > 0:
+                # Determine number of indentation levels (assuming 4 spaces or 1 tab per level)
+                if '\t' in line[:leading_whitespace]:
+                    # Handle tabs
+                    indent_level = line[:leading_whitespace].count('\t')
+                    new_indent = '  ' * indent_level
                 else:
-                    # Odd number of spaces, use a best guess
-                    indent_level = round(leading_whitespace / 4)
-            
-            # Create standardized line with 2 spaces per indentation level
-            standardized_line = ' ' * (2 * indent_level) + content
-            standardized_lines.append(standardized_line)
+                    # Handle spaces, assuming original indent is 4 spaces
+                    indent_level = leading_whitespace // 4
+                    new_indent = '  ' * indent_level
+                
+                standardized_lines.append(new_indent + line.lstrip())
+            else:
+                standardized_lines.append(line)
         
-        # Update cell source with standardized indentation
-        new_source = '\n'.join(standardized_lines)
-        
-        if new_source != cell.source:
-            log_msg("\nStandardized indentation in code cell:", Fore.CYAN, '🔧')
-            log_msg("Original:", Fore.RED, '📄')
-            log_msg(cell.source, Fore.RED)
-            log_msg("Standardized:", Fore.GREEN, '✨')
-            log_msg(new_source, Fore.GREEN)
-            log_msg("-" * 80)
-            cell.source = new_source
-            
-        return cell
+        # Return in the same format as input (string or list)
+        if isinstance(source, list):
+            return [line + '\n' for line in standardized_lines[:-1]] + [standardized_lines[-1]]
+        else:
+            return '\n'.join(standardized_lines)
+
+# Initialize the task to register it
+StandardizeIndentationTask()
