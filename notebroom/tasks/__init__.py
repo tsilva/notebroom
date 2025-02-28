@@ -1,47 +1,78 @@
-"""Task implementations for Notebroom."""
-import importlib
-import inspect
+"""Task registration and management for notebroom."""
 import os
-import sys
-import pkgutil
-from typing import Dict, List, Type
+import yaml
+from typing import Dict, List, Optional, Any, Callable, Type
+from pathlib import Path
 
-from .base import Task
+class TaskRegistry:
+    """Registry for available tasks in the system."""
+    
+    _instance = None
+    _tasks = {}
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(TaskRegistry, cls).__new__(cls)
+        return cls._instance
+    
+    def register_task(self, name: str, task_class):
+        """Register a task with the registry."""
+        self._tasks[name] = task_class
+    
+    def get_task(self, name: str):
+        """Get a task by name."""
+        if name not in self._tasks:
+            raise ValueError(f"Task '{name}' is not registered. Available tasks: {', '.join(self._tasks.keys())}")
+        return self._tasks[name]
+    
+    def get_available_tasks(self) -> List[str]:
+        """Get list of available task names."""
+        return list(self._tasks.keys())
+    
+    def load_from_yaml(self, yaml_path: str) -> Dict[str, Any]:
+        """Load task definitions from YAML file."""
+        if not os.path.exists(yaml_path):
+            return {}
+            
+        with open(yaml_path, 'r') as f:
+            try:
+                config = yaml.safe_load(f)
+                return config.get('tasks', [])
+            except yaml.YAMLError:
+                return {}
 
-# Dictionary that will be populated with discovered tasks
-TASK_MAP = {}
-AVAILABLE_TASKS = []
+# Global registry instance
+registry = TaskRegistry()
+
+# Import all task implementations to ensure they're registered
+from .clean_markdown import CleanMarkdownTask
+from .emojify import EmojifyTask
+from .standardize_indentation import StandardizeIndentationTask
+from .fix_colab_links import FixColabLinksTask
+
+# Create backward compatibility mappings
+# Maps task names to their implementation classes
+TASK_MAP = {
+    task_name: registry._tasks[task_name] 
+    for task_name in registry._tasks
+}
+
+# List of available task names
+AVAILABLE_TASKS = registry.get_available_tasks()
+
+# Tasks that require LLM services
+# For now, let's assume none of our tasks require LLM by default
+# This should be updated based on the actual requirements
 LLM_REQUIRED_TASKS = []
 
-def register_tasks() -> None:
-    """Discover and register all Task subclasses automatically."""
-    global TASK_MAP, AVAILABLE_TASKS, LLM_REQUIRED_TASKS
-    
-    # Get the directory of the current package
-    package_dir = os.path.dirname(__file__)
-    
-    # Import all modules in the tasks package
-    for _, module_name, is_pkg in pkgutil.iter_modules([package_dir]):
-        if not is_pkg and module_name != 'base':
-            module = importlib.import_module(f"{__name__}.{module_name}")
-            
-            # Find all Task subclasses in the module
-            for _, obj in inspect.getmembers(module):
-                if (inspect.isclass(obj) and 
-                    issubclass(obj, Task) and 
-                    obj != Task and
-                    hasattr(obj, 'task_id') and 
-                    obj.task_id):
-                    
-                    # Register the task
-                    TASK_MAP[obj.task_id] = obj
-                    
-                    # Add to LLM required tasks if specified
-                    if obj.requires_llm:
-                        LLM_REQUIRED_TASKS.append(obj.task_id)
-    
-    # Create the list of available tasks
-    AVAILABLE_TASKS = list(TASK_MAP.keys())
-
-# Execute the discovery and registration process
-register_tasks()
+# Export for easier imports
+__all__ = [
+    'registry', 
+    'TASK_MAP', 
+    'AVAILABLE_TASKS', 
+    'LLM_REQUIRED_TASKS',
+    'CleanMarkdownTask', 
+    'EmojifyTask', 
+    'StandardizeIndentationTask', 
+    'FixColabLinksTask'
+]

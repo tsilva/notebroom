@@ -17,7 +17,7 @@ import tiktoken
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-from notebroom.tasks import TASK_MAP, AVAILABLE_TASKS, LLM_REQUIRED_TASKS
+from notebroom.tasks import TASK_MAP, AVAILABLE_TASKS, LLM_REQUIRED_TASKS, registry
 from notebroom.utils import log_msg, find_notebooks
 
 # Initialize environment
@@ -429,133 +429,96 @@ def process_notebook(infile: str, task_name: str, output: Optional[str] = None) 
             log_msg(f"Error saving notebook {outfile}: {e}", Fore.RED, '❌')
 
 
+def find_config():
+    from pathlib import Path
+
+    """Find the tasks.yaml config file in the current directory or parent directories."""
+    current_dir = Path.cwd()
+    
+    # Look in current directory and parents
+    for dir_path in [current_dir] + list(current_dir.parents):
+        config_path = dir_path / 'tasks.yaml'
+        if config_path.exists():
+            return str(config_path)
+    
+    # Fall back to the example in the package
+    package_dir = Path(__file__).parent.parent
+    return str(package_dir / 'tasks.yaml.example')
+
+def process_notebook(task_name, notebook_path, config=None):
+    """Process a notebook with the specified task."""
+    if task_name not in TASK_MAP:
+        print(f"Error: '{task_name}' is not a recognized task. Available tasks: {', '.join(AVAILABLE_TASKS)}")
+        return False
+    
+    # Create the task instance
+    task_class = registry.get_task(task_name)
+    task = task_class(config or {})
+    
+    # Read the notebook
+    try:
+        with open(notebook_path, 'r', encoding='utf-8') as f:
+            notebook = nbformat.read(f, as_version=4)
+    except Exception as e:
+        print(f"Error reading notebook {notebook_path}: {e}")
+        return False
+    
+    # Process the notebook
+    try:
+        processed_notebook = task.run(notebook)
+        
+        # Write the processed notebook back
+        with open(notebook_path, 'w', encoding='utf-8') as f:
+            nbformat.write(processed_notebook, f)
+        
+        print(f"Successfully processed {notebook_path} with task '{task_name}'")
+        return True
+    except Exception as e:
+        print(f"Error processing notebook with task '{task_name}': {e}")
+        return False
+
 def main():
-    """Main entry point for the Notebroom CLI."""
-    # Create a more intuitive command-line interface
-    parser = argparse.ArgumentParser(
-        description="🧹 Notebroom - A CLI tool for cleaning and processing Jupyter notebooks with LLMs.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Fix Colab links in a notebook
-  notebroom fix_colab_links path/to/notebook.ipynb
-  
-  # Clean markdown cells in all notebooks in a directory
-  notebroom clean_markdown path/to/notebooks/ -o path/to/output/
-  
-  # Export notebook to markdown for LLM processing
-  notebroom dump_markdown notebook.ipynb -o notebook_for_llm.md
-  
-  # Run a sequence of tasks from a config file
-  notebroom task_config.yaml path/to/notebook.ipynb
-        """
-    )
+    """Main entry point for the notebroom command line tool."""
+    parser = argparse.ArgumentParser(description='Notebroom: Notebook Room service')
+    parser.add_argument('task', nargs='?', help='Task to run')
+    parser.add_argument('notebook', nargs='?', help='Notebook file to process')
+    parser.add_argument('--config', '-c', help='Path to config file (default: search for tasks.yaml)')
+    parser.add_argument('--list', '-l', action='store_true', help='List available tasks')
     
-    # Add task argument - can be either a task name or a path to a config file
-    parser.add_argument(
-        "task",
-        metavar="TASK",
-        help="Task to execute or path to a YAML configuration file with tasks. Available tasks: " + ", ".join(AVAILABLE_TASKS),
-    )
-    
-    # Notebook path is always required
-    parser.add_argument(
-        "notebook",
-        metavar="NOTEBOOK_PATH",
-        help="Path to the input notebook file or directory containing notebooks"
-    )
-    
-    parser.add_argument(
-        "-o", "--output",
-        metavar="OUTPUT_PATH",
-        help="Path to the output file or directory. If not provided, input files will be modified in-place.",
-        default=None
-    )
-    
-    # Parse arguments
     args = parser.parse_args()
-    infile = args.notebook
     
-    # Check if the task is a YAML config file or a task name
-    is_config_file = False
-    if os.path.isfile(args.task) and (args.task.endswith('.yaml') or args.task.endswith('.yml')):
-        is_config_file = True
-    elif args.task not in AVAILABLE_TASKS:
-        parser.error(f"'{args.task}' is not a recognized task or a valid YAML config file. Available tasks: {', '.join(AVAILABLE_TASKS)}")
+    # List available tasks if requested
+    if args.list:
+        print("Available tasks:")
+        for task_name in AVAILABLE_TASKS:
+            print(f"  - {task_name}")
+        return 0
     
-    # Handle directory or file input
-    if os.path.isdir(infile):
-        notebooks = find_notebooks(infile)
-        if not notebooks:
-            print(f"Error: No .ipynb files found in {infile}")
-            sys.exit(1)
-            
-        # Prompt for confirmation
-        print(f"Found {len(notebooks)} notebook files in {infile}:")
-        for nb in notebooks[:5]:  # Show first 5 notebooks
-            print(f" - {os.path.basename(nb)}")
-        if len(notebooks) > 5:
-            print(f" ... and {len(notebooks) - 5} more")
-        
-        # Check output option for multiple notebooks
-        if args.output and not os.path.isdir(args.output):
-            print("Error: When processing multiple notebooks, output (-o) must be a directory.")
-            sys.exit(1)
-        
-        if is_config_file:
-            # Process with config file
-            config_data = load_config_file(args.task)
-            tasks = config_data['tasks']
-            
-            confirm = input(f"Process all {len(notebooks)} notebooks with {len(tasks)} tasks from config? [y/N] ")
-            if confirm.lower() != 'y':
-                print("Operation cancelled.")
-                sys.exit(0)
-                
-            # Process each notebook with all tasks in sequence
-            for nb_file in notebooks:
-                output_path = os.path.join(args.output, os.path.basename(nb_file)) if args.output else None
-                process_notebook_with_tasks(nb_file, tasks, output_path)
-        else:
-            # Process with single task
-            task_name = args.task
-            
-            # Check for OpenRouter API key if using LLM tasks
-            if not os.getenv("OPENROUTER_API_KEY") and task_name in LLM_REQUIRED_TASKS:
-                print(f"Error: OPENROUTER_API_KEY environment variable must be set for the {task_name} task.")
-                sys.exit(1)
-                
-            confirm = input(f"Process all {len(notebooks)} notebooks with task '{task_name}'? [y/N] ")
-            if confirm.lower() != 'y':
-                print("Operation cancelled.")
-                sys.exit(0)
-                
-            # Process each notebook with the single task
-            for nb_file in notebooks:
-                process_notebook(nb_file, task_name, args.output)
+    # Require both task and notebook if not listing
+    if not args.task or not args.notebook:
+        parser.print_help()
+        return 1
+    
+    # Determine config file path
+    config_path = args.config or find_config()
+    if not os.path.exists(config_path):
+        print(f"Warning: Config file not found: {config_path}")
+        config = {}
     else:
-        # Check if file exists
-        if not os.path.exists(infile):
-            print(f"Error: Notebook file not found: {infile}")
-            sys.exit(1)
-            
-        if is_config_file:
-            # Process with config file
-            config_data = load_config_file(args.task)
-            tasks = config_data['tasks']
-            process_notebook_with_tasks(infile, tasks, args.output)
-        else:
-            # Process with single task
-            task_name = args.task
-            
-            # Check for OpenRouter API key if using LLM tasks
-            if not os.getenv("OPENROUTER_API_KEY") and task_name in LLM_REQUIRED_TASKS:
-                print(f"Error: OPENROUTER_API_KEY environment variable must be set for the {task_name} task.")
-                sys.exit(1)
-                
-            # Process single notebook with the single task
-            process_notebook(infile, task_name, args.output)
+        # Load task configs
+        task_configs = registry.load_from_yaml(config_path)
+        
+        # Find the specific task config
+        config = {}
+        for task_entry in task_configs:
+            if task_entry.get('name') == args.task:
+                config = task_entry
+                break
+    
+    # Process the notebook
+    success = process_notebook(args.task, args.notebook, config)
+    return 0 if success else 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
 

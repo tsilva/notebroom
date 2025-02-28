@@ -158,3 +158,91 @@ class FixColabLinks(Task):
         """Process an entire notebook."""
         self.notebook_path = os.path.abspath(infile)
         super().process_notebook(infile, outfile, llm_service, nb)
+
+
+"""Task for fixing Colab links in notebooks."""
+import re
+from .base import BaseTask
+
+class FixColabLinksTask(BaseTask):
+    """Task to fix 'Open in Colab' links to point to the correct GitHub repository."""
+    
+    task_name = "fix_colab_links"
+    
+    def run(self, notebook_content):
+        """
+        Fix Colab links in notebook markdown cells.
+        
+        Args:
+            notebook_content: The notebook content to process
+            
+        Returns:
+            Processed notebook content with fixed Colab links
+        """
+        repo_url = self.config.get('repo_url', 'https://github.com/tsilva/notebroom')
+        
+        for cell in notebook_content.get('cells', []):
+            if cell['cell_type'] == 'markdown':
+                cell['source'] = self._fix_colab_links(cell['source'], repo_url)
+        
+        return notebook_content
+    
+    def _fix_colab_links(self, source, repo_url):
+        """
+        Fix Colab links to point to the correct repository.
+        
+        Args:
+            source: The markdown content as a string or list of lines
+            repo_url: The GitHub repository URL
+            
+        Returns:
+            Source with fixed Colab links
+        """
+        if not source:
+            return source
+            
+        # Convert list of lines to a single string if needed
+        if isinstance(source, list):
+            content = ''.join(source)
+        else:
+            content = source
+            
+        # Regular expression to find Colab links
+        colab_link_pattern = r'\[(?:[^]]*\bColab\b[^]]*)\]\((https?://colab\.research\.google\.com/github/[^/]+/[^/]+/blob/[^)]+)\)'
+        
+        def replace_link(match):
+            link_text = match.group(1)
+            # Extract path part after github/<user>/<repo>/blob/
+            path_parts = link_text.split('github/')[1].split('/', 3)
+            if len(path_parts) >= 4:
+                # Construct new URL with correct repo
+                user_repo = repo_url.split('github.com/')[1]
+                path = path_parts[3]
+                new_url = f"https://colab.research.google.com/github/{user_repo}/blob/{path}"
+                return f"[{match.group(0)}]({new_url})"
+            return match.group(0)
+        
+        # Replace Colab links
+        fixed_content = re.sub(colab_link_pattern, replace_link, content)
+        
+        # Return in the same format as input (string or list)
+        if isinstance(source, list):
+            # Split back into lines with the same line endings
+            lines = []
+            remaining = fixed_content
+            for original_line in source:
+                if not remaining:
+                    lines.append('')
+                    continue
+                    
+                # Take chunks from the modified content that match the original line lengths
+                chunk_len = len(original_line)
+                lines.append(remaining[:chunk_len])
+                remaining = remaining[chunk_len:]
+            
+            return lines
+        else:
+            return fixed_content
+
+# Initialize the task to register it
+FixColabLinksTask()

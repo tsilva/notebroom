@@ -1,8 +1,27 @@
-"""Base task definitions for Notebroom."""
+"""Base class for all notebroom tasks."""
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, List
+from typing import Dict, Any, Optional, List
 
-class Task(ABC):
+class BaseTask(ABC):
+    """Base class that all tasks should inherit from."""
+    
+    task_name = None  # Should be overridden by subclasses
+    
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config or {}
+        
+        # Register this task with the registry
+        from . import registry
+        if self.task_name:
+            registry.register_task(self.task_name, self.__class__)
+    
+    @abstractmethod
+    def run(self, notebook_content):
+        """Run the task on a notebook. Must be implemented by subclasses."""
+        pass
+
+
+class Task(BaseTask):
     """Base abstract class for all notebook processing tasks."""
     
     # Class attributes that define task metadata
@@ -11,7 +30,7 @@ class Task(ABC):
     
     def __init__(self, config):
         """Initialize the task with configuration."""
-        self.config = config
+        super().__init__(config)
         
         # Validate that task_id is defined
         if self.__class__.task_id is None:
@@ -30,6 +49,13 @@ class Task(ABC):
         """
         # Default implementation doesn't do anything special at the notebook level
         pass
+    
+    def run(self, notebook_content):
+        """Run the task on a notebook."""
+        # Process each cell in the notebook
+        for cell in notebook_content.get('cells', []):
+            self.process_cell(cell, None)  # No LLM service by default
+        return notebook_content
 
 
 class TextProcessingTask(Task):
