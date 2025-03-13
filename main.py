@@ -1,11 +1,10 @@
 import os
 import json
-import shutil
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
-import sys
 
 # Load environment variables for API access
 load_dotenv()
@@ -16,28 +15,37 @@ def colored_text(text, color):
     reset = '\033[0m'
     return f"{color_codes[color]}{text}{reset}"
 
+def check_env_vars():
+    """Check if required environment variables are set."""
+    required_vars = ["OPENROUTER_BASE_URL", "OPENROUTER_API_KEY", "MODEL_ID"]
+    missing = [var for var in required_vars if not os.getenv(var)]
+    if missing:
+        print(colored_text(f"Error: Missing environment variables: {', '.join(missing)}", 'red'))
+        sys.exit(1)
+
 def ipynb_to_markdown(ipynb_path):
+    """Convert a Jupyter notebook to a markdown string for processing."""
     with open(ipynb_path, 'r', encoding='utf-8') as f: 
         notebook = json.load(f)
 
     markdown_content = []
     for i, cell in enumerate(notebook.get('cells', [])):
         cell_type = cell.get('cell_type', 'unknown')
-
         type_abbrev = {'markdown': 'md', 'code': 'code'}.get(cell_type, 'unk')
-        
         cell_num = str(i + 1)
         start_delim = f"<-- START:{cell_num}:{type_abbrev} -->\n"
         end_delim = f"<-- END:{cell_num}:{type_abbrev} -->\n"
-        cell_source = '\n'.join(line.rstrip() for line in cell.get('source', [])).rstrip('\n')
+        
+        # Preserve the exact source, including trailing newlines
+        cell_source = ''.join(cell.get('source', []))
         
         if cell_type == 'markdown':
-            content = cell_source + "\n" if cell_source else ""
+            content = cell_source
         elif cell_type == 'code':
             outputs = [f"> Output:\n{''.join(output.get('text', [])).rstrip()}\n" 
                        for output in cell.get('outputs', []) 
                        if output.get('output_type') == 'stream' and ''.join(output.get('text', [])).rstrip()]
-            content = cell_source + "\n" + ''.join(outputs)
+            content = cell_source + ''.join(outputs)
         else:
             content = ""
 
@@ -45,7 +53,8 @@ def ipynb_to_markdown(ipynb_path):
 
     return ''.join(markdown_content)
 
-def improve_notebook(notebook_path):
+def improve_notebook(notebook_path, verbose=True):
+    """Improve markdown cells in a Jupyter notebook using an AI model."""
     # Validate input file
     notebook_path = Path(notebook_path)
     if not notebook_path.exists() or notebook_path.suffix != '.ipynb':
@@ -124,6 +133,7 @@ Never modify or suggest changes to code cells.
 """.strip()
 
     # Initialize the OpenAI client
+    check_env_vars()
     client = OpenAI(
         base_url=os.getenv("OPENROUTER_BASE_URL"),
         api_key=os.getenv("OPENROUTER_API_KEY")
@@ -131,7 +141,7 @@ Never modify or suggest changes to code cells.
     
     # Make a single API call with the entire notebook
     try:
-        print("Improving notebook...")
+        print(f"Improving {notebook_path}...")
         completion = client.chat.completions.create(
             model=os.getenv("MODEL_ID"),
             messages=[
@@ -151,7 +161,6 @@ Never modify or suggest changes to code cells.
     with open(notebook_path, 'r', encoding='utf-8') as f:
         notebook = json.load(f)
     
-    print(completion)
     # Process the model's response
     updated_cell_count = 0
     tool_calls = completion.choices[0].message.tool_calls or []
@@ -168,21 +177,25 @@ Never modify or suggest changes to code cells.
                 
                 # Skip if cell doesn't exist, is the first cell, or is not a markdown cell
                 if cell_index >= len(notebook['cells']) or cell_index < 0:
-                    tqdm.write(colored_text(f"Skipping update for cell {cell_number}: Invalid cell index", 'red'))
+                    if verbose:
+                        tqdm.write(colored_text(f"Skipping update for cell {cell_number}: Invalid cell index", 'red'))
                     continue
                 if cell_number == 1:
-                    tqdm.write(colored_text(f"Skipping update for cell {cell_number}: First cell cannot be modified", 'red'))
+                    if verbose:
+                        tqdm.write(colored_text(f"Skipping update for cell {cell_number}: First cell cannot be modified", 'red'))
                     continue
                 if notebook['cells'][cell_index]['cell_type'] != 'markdown':
-                    tqdm.write(colored_text(f"Skipping update for cell {cell_number}: Only markdown cells can be modified", 'red'))
+                    if verbose:
+                        tqdm.write(colored_text(f"Skipping update for cell {cell_number}: Only markdown cells can be modified", 'red'))
                     continue
                 
-                # Log original and improved content
-                original_source = ''.join(notebook['cells'][cell_index]['source']).strip()
-                tqdm.write(colored_text(f"--- Original cell {cell_number} ---", 'red'))
-                tqdm.write(colored_text(original_source, 'red'))
-                tqdm.write(colored_text(f"--- Improved cell {cell_number} ---", 'green'))
-                tqdm.write(colored_text(improved_content, 'green'))
+                # Log original and improved content if verbose
+                if verbose:
+                    original_source = ''.join(notebook['cells'][cell_index]['source']).strip()
+                    tqdm.write(colored_text(f"--- Original cell {cell_number} ---", 'red'))
+                    tqdm.write(colored_text(original_source, 'red'))
+                    tqdm.write(colored_text(f"--- Improved cell {cell_number} ---", 'green'))
+                    tqdm.write(colored_text(improved_content, 'green'))
                 
                 # Update the cell source
                 lines = improved_content.split('\n')
@@ -201,8 +214,13 @@ Never modify or suggest changes to code cells.
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python main.py notebook.ipynb")
+        print("Usage: python main.py notebook.ipynb [repeat_count] [--verbose]")
         sys.exit(1)
     
     notebook_path = sys.argv[1]
-    improve_notebook(notebook_path)
+    repeat_count = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 1
+    verbose = "--verbose" in sys.argv
+    
+    for i in range(repeat_count):
+        print(f"\n--- Iteration {i + 1} of {repeat_count} ---")
+        notebook_path = improve_notebook(notebook_path, verbose=verbose)
