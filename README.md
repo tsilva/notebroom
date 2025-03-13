@@ -1,193 +1,94 @@
-<div align="center">
+# notebroom
 
-# 🧹 Notebroom
+**A tool to automatically enhance the markdown cells in your Jupyter notebooks using AI.**
 
-**A CLI tool for cleaning and processing Jupyter notebooks with LLMs**
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-</div>
+## Description
 
-## 📋 Overview
+Notebook Refiner takes your Jupyter notebooks and polishes the markdown cells to make them clearer, more concise, and more engaging. Powered by OpenAI’s API, it analyzes your explanatory text, suggests meaningful improvements, and updates your notebook—all while leaving code cells untouched. Perfect for AI/ML tutorials or any notebook where great documentation matters.
 
-Notebroom is a command-line tool that helps you clean, process, and transform Jupyter notebooks. It uses LLMs (Large Language Models) for text-based tasks and provides utilities for fixing notebook links and exporting notebooks to markdown format.
+## Features
 
-## ⚡ Features
+- **Smart Analysis**: Evaluates markdown cells for clarity, conciseness, and engagement.
+- **AI-Powered Improvements**: Suggests enhancements that preserve your original intent.
+- **Selective Refinement**: Skips the first cell, headings, and already well-written content.
+- **Code-Safe**: Never modifies code cells—just the markdown.
+- **Terminal Feedback**: Color-coded output shows original vs. improved content.
 
-- 🔄 **Fix Colab Links** - Automatically update GitHub repository links in Colab buttons
-- 📝 **Clean Markdown** - Use LLMs to make notebook markdown cells more concise and clear
-- 😀 **Emojify** - Add appropriate emojis to markdown cells to make content more engaging
-- 📤 **Export to Markdown** - Convert notebooks to specially formatted markdown files for LLM processing
+## Requirements
 
-## 🚀 Installation
+- **Python**: 3.6 or higher
+- **OpenAI API Key**: Required for AI enhancements
+- **Dependencies**: 
+  - `openai`
+  - `python-dotenv`
+  - `tqdm`
+  - `pathlib`
+  - `shutil`
 
-```bash
-# Clone the repository
-git clone https://github.com/tsilva/notebroom.git
-cd notebroom
+## Installation
 
-# Install the package
-pip install -e .
-```
+Get started in just a few steps:
 
-## Setup with OpenRouter
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/yourusername/notebook-refiner.git
+   cd notebook-refiner
+   ```
 
-Notebroom uses [OpenRouter](https://openrouter.ai/) to access Claude-3.7-Sonnet and other LLMs.
+2. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-1. Create an account at [OpenRouter](https://openrouter.ai/)
-2. Generate an API key from your dashboard
-3. Set the API key as an environment variable:
+3. **Set Up Your API Key**:
+   - Create a `.env` file in the project root.
+   - Add your OpenAI API key:
+     ```
+     OPENROUTER_API_KEY=your_api_key_here
+     ```
+   - Optionally, set `OPENROUTER_BASE_URL` and `MODEL_ID` if using a custom OpenAI setup.
 
-```bash
-# Add this to your .env file
-OPENROUTER_API_KEY=your_api_key_here
-```
+## Usage
 
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENROUTER_API_KEY` | Your OpenRouter API key | (required) |
-| `MODEL` | Model to use | `anthropic/claude-3-7-sonnet` |
-| `MAX_TOKENS` | Max tokens in response | `1000` |
-| `TEMPERATURE` | Temperature setting | `0.2` |
-| `BATCH_SIZE` | Batch size for processing | `4` |
-| `NUM_WORKERS` | Number of worker threads | `8` |
-
-## 🛠️ Usage
-
-### Basic Command Format
+Run the tool with a single command:
 
 ```bash
-notebroom TASK NOTEBOOK_PATH [options]
+python main.py path/to/your/notebook.ipynb
 ```
 
-For example:
+- The script processes your notebook and updates it in place.
+- Watch the terminal for colorful feedback on what’s being improved.
 
-```bash
-notebroom fix_colab_links notebook.ipynb
+## How It Works
+
+1. **Conversion**: Transforms your `.ipynb` file into a markdown-like format for analysis.
+2. **Analysis**: Sends markdown cells (excluding the first cell and headings) to the AI model.
+3. **Enhancement**: Applies AI-suggested improvements only to cells that need it—think clarity, brevity, or engagement boosts.
+4. **Update**: Saves the refined notebook with updated markdown cells.
+
+## Example Output
+
+In your terminal, you’ll see something like this:
+
+```
+--- Original cell 2 ---
+This is a long and confusing explanation about the code that follows it.
+--- Improved cell 2 ---
+Here’s a concise explanation of the upcoming code.
 ```
 
-Run `notebroom -h` to see all available options.
+## Contributing
 
-### Available Tasks
+Love the idea? Want to make it better? Contributions are welcome!
 
-#### 1. Fix Colab Links (`fix_colab_links`)
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/amazing-idea`).
+3. Commit your changes (`git commit -m "Add amazing idea"`).
+4. Push to the branch (`git push origin feature/amazing-idea`).
+5. Open a pull request.
 
-```bash
-notebroom fix_colab_links path/to/notebook.ipynb
-```
+## License
 
-This task detects Colab links in markdown cells and updates them to point to the correct GitHub repository based on your local Git configuration. It works with both Markdown-style and HTML-style Colab links.
-
-#### 2. Clean Markdown (`clean_markdown`)
-
-```bash
-notebroom clean_markdown path/to/notebook.ipynb
-```
-
-Uses an LLM to make existing markdown cells more concise and clear while preserving all information and maintaining technical accuracy.
-
-> ⚠️ Requires `OPENROUTER_API_KEY` environment variable to be set.
-
-#### 3. Emojify (`emojify`)
-
-```bash
-notebroom emojify path/to/notebook.ipynb
-```
-
-Adds appropriate emojis to markdown cells to make the content more engaging and readable.
-
-> ⚠️ Requires `OPENROUTER_API_KEY` environment variable to be set.
-
-#### 4. Export to Markdown (`dump_markdown`)
-
-```bash
-notebroom dump_markdown path/to/notebook.ipynb -o output.md
-```
-
-Converts the notebook to a specially formatted markdown file that is optimized for LLM processing. Each cell is enclosed in HTML comments with type and number markers, making it easy for LLMs to reference specific cells.
-
-### Processing Multiple Notebooks
-
-You can process all notebooks in a directory by specifying a directory path:
-
-```bash
-notebroom fix_colab_links path/to/directory/
-```
-
-### Output Options
-
-By default, most tasks modify the notebook in place. To save to a different location:
-
-```bash
-notebroom task-name path/to/notebook.ipynb -o path/to/output.ipynb
-```
-
-For `dump_markdown`, the default output is a markdown file with the same name as the notebook.
-
-## ⚙️ Configuration
-
-Notebroom can be configured using environment variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `MODEL` | LLM model to use | `anthropic/claude-3-7-sonnet` |
-| `MAX_TOKENS` | Maximum tokens for LLM responses | `1000` |
-| `TEMPERATURE` | Temperature for LLM responses | `0.2` |
-| `NUM_WORKERS` | Number of concurrent workers | `8` |
-| `TPM_LIMIT` | Tokens per minute limit | `100000` |
-| `RPM_LIMIT` | Requests per minute limit | `60` |
-| `MAX_RETRIES` | Maximum retries for failed LLM calls | `5` |
-
-## 📝 Examples
-
-### Fix Colab links in an entire repository
-
-```bash
-notebroom fix_colab_links path/to/notebooks/
-```
-
-### Clean markdown and save to a new file
-
-```bash
-notebroom clean_markdown notebook.ipynb -o cleaned_notebook.ipynb
-```
-
-### Export notebook to formatted markdown for LLM analysis
-
-```bash
-notebroom dump_markdown complex_notebook.ipynb -o for_llm_analysis.md
-```
-
-## 📚 Output Format for LLM Processing
-
-When using `dump_markdown`, the output has special markers that help LLMs understand and reference notebook structure:
-
-```markdown
-<!-- NOTEBOOK:example.ipynb -->
-# Notebook: example.ipynb
-
-<!-- CELL:MARKDOWN:1 -->
-# Example Header
-<!-- CELL:MARKDOWN:1:END -->
-
-<!-- CELL:CODE:2 -->
-```python
-import pandas as pd
-```
-<!-- CELL:CODE:2:END -->
-```
-
-This format makes it easy for LLMs to reference specific cells by type and number (e.g., "In CODE:2, you should add...").
-
-## Performance Optimizations
-
-This version is optimized for throughput when working with Claude-3.7-Sonnet:
-
-- Batched cell processing for parallel execution
-- Improved connection pooling and request handling
-- Intelligent rate limiting for OpenRouter's API constraints
-- Automatic retry with exponential backoff
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the [MIT License](LICENSE)—free to use, modify, and share.
