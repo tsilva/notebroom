@@ -1,6 +1,6 @@
-# notebroom
+# Notebroom
 
-**A tool to automatically enhance the markdown cells in your Jupyter notebooks using AI.**
+A tool to improve Jupyter notebook markdown cells using AI.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -29,28 +29,39 @@ Notebook Refiner takes your Jupyter notebooks and polishes the markdown cells to
 
 ## Installation
 
-Get started in just a few steps:
+```bash
+# Install from the local directory
+pip install -e .
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/yourusername/notebook-refiner.git
-   cd notebook-refiner
-   ```
-
-2. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Set Up Your API Key**:
-   - Create a `.env` file in the project root.
-   - Add your OpenAI API key:
-     ```
-     OPENROUTER_API_KEY=your_api_key_here
-     ```
-   - Optionally, set `OPENROUTER_BASE_URL` and `MODEL_ID` if using a custom OpenAI setup.
+# Or install directly from git
+# pip install git+https://github.com/username/notebroom.git
+```
 
 ## Usage
+
+```bash
+# Basic usage
+notebroom path/to/notebook.ipynb
+
+# Run multiple improvement iterations
+notebroom path/to/notebook.ipynb 3
+
+# Show verbose output
+notebroom path/to/notebook.ipynb --verbose
+
+# Combine options
+notebroom path/to/notebook.ipynb 2 --verbose
+```
+
+## Environment Variables
+
+Create a `.env` file with the following variables:
+
+```
+OPENROUTER_BASE_URL=your_base_url
+OPENROUTER_API_KEY=your_api_key
+MODEL_ID=your_model_id
+```
 
 Run the tool with a single command:
 
