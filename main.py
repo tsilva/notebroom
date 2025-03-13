@@ -1,140 +1,208 @@
 import os
 import json
 import shutil
-import time
 from pathlib import Path
-from tqdm import tqdm
 from dotenv import load_dotenv
 from openai import OpenAI
+from tqdm import tqdm
+import sys
 
 # Load environment variables for API access
 load_dotenv()
 
 def colored_text(text, color):
+    """Return text with ANSI color codes for terminal display."""
     color_codes = {'red': '\033[31m', 'green': '\033[32m'}
     reset = '\033[0m'
     return f"{color_codes[color]}{text}{reset}"
 
 def ipynb_to_markdown(ipynb_path):
-    with open(ipynb_path, 'r', encoding='utf-8') as f:
+    with open(ipynb_path, 'r', encoding='utf-8') as f: 
         notebook = json.load(f)
-    
+
     markdown_content = []
     for i, cell in enumerate(notebook.get('cells', [])):
         cell_type = cell.get('cell_type', 'unknown')
-        cell_source = ''.join(cell.get('source', []))
-        cell_num = f"{i+1}"
-        markdown_content.append(f"<-- CELL[{cell_type}] {cell_num}:  START  -->\n")
+
+        type_abbrev = {'markdown': 'md', 'code': 'code'}.get(cell_type, 'unk')
+        
+        cell_num = str(i + 1)
+        start_delim = f"<-- START:{cell_num}:{type_abbrev} -->\n"
+        end_delim = f"<-- END:{cell_num}:{type_abbrev} -->\n"
+        cell_source = '\n'.join(line.rstrip() for line in cell.get('source', [])).rstrip('\n')
         
         if cell_type == 'markdown':
-            markdown_content.append(cell_source + "\n")
+            content = cell_source + "\n" if cell_source else ""
         elif cell_type == 'code':
-            markdown_content.append(f"```python\n{cell_source}\n```\n")
-            for output in cell.get('outputs', []):
-                if output.get('output_type') == 'stream':
-                    markdown_content.append(f"```\n{''.join(output.get('text', []))}\n```\n")
-        
-        markdown_content.append(f"<-- CELL[{cell_type}] {cell_num}:  END  -->\n\n")
-    
+            outputs = [f"> Output:\n{''.join(output.get('text', [])).rstrip()}\n" 
+                       for output in cell.get('outputs', []) 
+                       if output.get('output_type') == 'stream' and ''.join(output.get('text', [])).rstrip()]
+            content = cell_source + "\n" + ''.join(outputs)
+        else:
+            content = ""
+
+        markdown_content.append(start_delim + content + end_delim)
+
     return ''.join(markdown_content)
 
-def improve_notebook_cell(notebook_path, cell_id):
+def improve_notebook(notebook_path):
+    # Validate input file
+    notebook_path = Path(notebook_path)
+    if not notebook_path.exists() or notebook_path.suffix != '.ipynb':
+        print(colored_text(f"Error: '{notebook_path}' does not exist or is not a .ipynb file", 'red'))
+        sys.exit(1)
+    
+    # Convert notebook to markdown format
     notebook_md = ipynb_to_markdown(notebook_path)
-    system_prompt = f"""You are an expert educator 📚 tasked with enhancing markdown cells in Jupyter notebooks for AI/ML tutorials. Your goal is to transform the specified markdown cell into a clear ✨, concise ✂️, and engaging 😊 piece of content that fits seamlessly into the notebook’s learning journey.
+    
+    # Define the tool for the model to specify cell updates
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "update_markdown_cells",
+                "description": "Update the content of multiple markdown cells in the notebook",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "updates": {
+                            "type": "array",
+                            "description": "Array of updates, each specifying a cell number and improved content",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "cell_number": {
+                                        "type": "integer",
+                                        "description": "The number of the cell to update (starting from 1)"
+                                    },
+                                    "improved_content": {
+                                        "type": "string",
+                                        "description": "The improved markdown content for the cell"
+                                    }
+                                },
+                                "required": ["cell_number", "improved_content"]
+                            }
+                        }
+                    },
+                    "required": ["updates"]
+                }
+            }
+        }
+    ]
+    
+    # System prompt with instructions for the model
+    system_prompt = """You are an expert educator 📚 enhancing markdown cells in Jupyter notebooks for AI/ML tutorials. You'll receive notebook markdown cells labeled:
 
-I’ll provide the notebook in markdown format, with cells labeled:  
-`<-- CELL[cell_type] cell_number: START -->`  
-`<-- CELL[cell_type] cell_number: END -->`
+`<-- START:cell_number:cell_type -->`
+`<-- END:cell_number:cell_type -->`
 
-For the specified cell number, analyze the markdown cell 📝 in context—considering prior and upcoming cells—and deliver an improved version that:  
-1. Corrects errors or vague explanations 🛠️  
-2. Removes unnecessary fluff for maximum information density 📉  
-3. Enhances clarity with tight structure, crisp formatting, and precise wording 📋  
-4. Follows AI/ML tutorial best practices: clear headings, bite-sized examples, useful links, and consistent style 🎯  
-5. Preserves the cell’s core intent while improving transitions for better notebook flow 🌊  
+Analyze markdown cells that:
+- Are NOT the first cell (cell_number > 1)
+- Do NOT start with '#'
 
-Use emojis sparingly to add light engagement, but prioritize accuracy and clarity over decoration. Keep the cell’s structure intact if it’s critical to the notebook’s function (e.g., don’t convert prose to code or vice versa unless necessary).
+Improve cells ONLY if the current content:
+- Is unclear, confusing, verbose, or redundant.
+- Contains errors or irrelevant details.
+- Lacks engagement or disrupts flow.
+- Doesn't follow AI/ML tutorial best practices (concise examples, clear style).
 
-**Important:** Your output must ONLY include the polished markdown content, ready to replace the original. Do NOT include any cell delimiters like `<-- CELL[markdown] X: START -->` or `<-- CELL[markdown] X: END -->`, no extra notes, no explanations—just the improved markdown text itself.
+Your improved version MUST:
+- Be clear ✨, concise ✂️, and engaging 😊.
+- Correct inaccuracies or vagueness 🛠️.
+- Remove redundancy 📉.
+- Follow AI/ML tutorial best practices (concise examples, consistent style) 🎯.
+- Preserve the original intent, improving transitions for flow.
+- NOT add headings (e.g., `# Heading`).
 
----
+**Important Instructions for Updates**:
+- Only call `update_markdown_cells` for cells where you have made a meaningful improvement to the content (e.g., rephrased for clarity, corrected errors, removed redundancy, improved engagement).
+- **Do NOT call `update_markdown_cells` if the improved content is effectively identical to the original**, even if there are minor formatting differences (e.g., extra spaces, trailing newlines, or line ending variations). "Effectively identical" means the rendered markdown output would look the same to a reader.
+- If a cell does not need improvement (because it’s already clear, concise, and follows best practices), exclude it entirely from the updates array. Do not include it just to report “no change.”
+- When providing improved content, preserve the original formatting structure as much as possible (e.g., do not add or remove trailing newlines unless it’s part of a meaningful improvement).
 
-**Notebook content in markdown format below:**
----
-
-{notebook_md}
+Never modify or suggest changes to code cells.
 """.strip()
-        
+
+    # Initialize the OpenAI client
     client = OpenAI(
         base_url=os.getenv("OPENROUTER_BASE_URL"),
         api_key=os.getenv("OPENROUTER_API_KEY")
     )
     
-    completion = client.chat.completions.create(
-        model="google/gemini-2.0-flash-001",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"{cell_id}"}
-        ]
-    )
+    # Make a single API call with the entire notebook
+    try:
+        print("Improving notebook...")
+        completion = client.chat.completions.create(
+            model=os.getenv("MODEL_ID"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": notebook_md}
+            ],
+            tools=tools,
+            temperature=0.0,
+            max_tokens=128_000
+        )
+        print("API call completed.")
+    except Exception as e:
+        print(colored_text(f"Error during API call: {str(e)}", 'red'))
+        sys.exit(1)
     
-    return completion.choices[0].message.content.strip()
-
-def improve_all(notebook_path, output_path=None):
-    if output_path is None:
-        file_path = Path(notebook_path)
-        output_path = str(file_path.parent / f"{file_path.stem}_improved{file_path.suffix}")
-    
-    shutil.copy2(notebook_path, output_path)
-    
-    with open(output_path, 'r', encoding='utf-8') as f:
+    # Load the notebook for updating
+    with open(notebook_path, 'r', encoding='utf-8') as f:
         notebook = json.load(f)
-        
-    markdown_cells = [(i, cell) for i, cell in enumerate(notebook.get('cells', []))
-                    if i > 0 and cell.get('cell_type') == 'markdown' 
-                    and not ''.join(cell.get('source', [])).strip().startswith('#')]
-        
-    print(f"Found {len(markdown_cells)} markdown cells to improve")
     
-    for cell_index, _ in tqdm(markdown_cells, desc="Improving markdown cells"):
-        try:
-            cell_number = cell_index + 1
-            # Get the original content and log it in red
-            original_content = '\n'.join(notebook['cells'][cell_index]['source'])
-            tqdm.write(colored_text(f"--- Original cell {cell_number} ---", 'red'))
-            tqdm.write(colored_text(original_content, 'red'))
+    print(completion)
+    # Process the model's response
+    updated_cell_count = 0
+    tool_calls = completion.choices[0].message.tool_calls or []
+    for tool_call in tool_calls:
+        if tool_call.function.name == "update_markdown_cells":
+            # Parse the function arguments
+            arguments = json.loads(tool_call.function.arguments)
+            updates = arguments.get("updates", [])
             
-            # Improve the cell content
-            improved_content = improve_notebook_cell(output_path, str(cell_number))
-            
-            # Log the improved content in green
-            tqdm.write(colored_text(f"--- Improved cell {cell_number} ---", 'green'))
-            tqdm.write(colored_text(improved_content, 'green'))
-            
-            # Update the notebook with the improved content
-            lines = improved_content.split('\n')
-            if lines and lines[-1] == '':
-                lines = lines[:-1]  # Remove trailing empty line if present
-            notebook['cells'][cell_index]['source'] = lines
-            
-            # Save the updated notebook
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(notebook, f, indent=2)
-            
-            time.sleep(1)  # Brief pause between improvements
-        
-        except Exception as e:
-            print(f"Error improving cell {cell_index + 1}: {str(e)}")
+            for update in updates:
+                cell_number = int(update["cell_number"])
+                improved_content = update["improved_content"]
+                cell_index = cell_number - 1  # Convert to 0-based index
+                
+                # Skip if cell doesn't exist, is the first cell, or is not a markdown cell
+                if cell_index >= len(notebook['cells']) or cell_index < 0:
+                    tqdm.write(colored_text(f"Skipping update for cell {cell_number}: Invalid cell index", 'red'))
+                    continue
+                if cell_number == 1:
+                    tqdm.write(colored_text(f"Skipping update for cell {cell_number}: First cell cannot be modified", 'red'))
+                    continue
+                if notebook['cells'][cell_index]['cell_type'] != 'markdown':
+                    tqdm.write(colored_text(f"Skipping update for cell {cell_number}: Only markdown cells can be modified", 'red'))
+                    continue
+                
+                # Log original and improved content
+                original_source = ''.join(notebook['cells'][cell_index]['source']).strip()
+                tqdm.write(colored_text(f"--- Original cell {cell_number} ---", 'red'))
+                tqdm.write(colored_text(original_source, 'red'))
+                tqdm.write(colored_text(f"--- Improved cell {cell_number} ---", 'green'))
+                tqdm.write(colored_text(improved_content, 'green'))
+                
+                # Update the cell source
+                lines = improved_content.split('\n')
+                source = [line + '\n' for line in lines]  # Preserve newlines
+                notebook['cells'][cell_index]['source'] = source
+                print(f"Updated cell {cell_number}")
+                updated_cell_count += 1
     
-    print(f"\nCompleted! Improved notebook saved to {output_path}")
-    return output_path
+    # Save the updated notebook
+    with open(notebook_path, 'w', encoding='utf-8') as f:
+        json.dump(notebook, f, indent=2)
+    
+    print(f"\nUpdated {updated_cell_count} markdown cells. ({updated_cell_count/len(notebook['cells'])*100:.2f}% of total)")
+    print(f"\nCompleted! Improved notebook saved to {notebook_path}")
+    return notebook_path
 
 if __name__ == "__main__":
-    import sys
     if len(sys.argv) < 2:
-        print("Usage: python main.py notebook.ipynb [output.ipynb]")
+        print("Usage: python main.py notebook.ipynb")
         sys.exit(1)
     
     notebook_path = sys.argv[1]
-    output_path = sys.argv[2] if len(sys.argv) > 2 else None
-    improve_all(notebook_path, output_path)
+    improve_notebook(notebook_path)
