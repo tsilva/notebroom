@@ -149,9 +149,11 @@ Never modify or suggest changes to code cells.
                 {"role": "user", "content": notebook_md}
             ],
             tools=tools,
+            tool_choice="required",
             temperature=0.0,
             max_tokens=128_000
         )
+        print(completion)
         print("API call completed.")
     except Exception as e:
         print(colored_text(f"Error during API call: {str(e)}", 'red'))
