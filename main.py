@@ -1,14 +1,14 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import json
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
 
 # Load environment variables for API access
-load_dotenv()
-
 def colored_text(text, color):
     """Return text with ANSI color codes for terminal display."""
     color_codes = {'red': '\033[31m', 'green': '\033[32m'}
@@ -126,8 +126,8 @@ Your improved version MUST:
 **Important Instructions for Updates**:
 - Only call `update_markdown_cells` for cells where you have made a meaningful improvement to the content (e.g., rephrased for clarity, corrected errors, removed redundancy, improved engagement).
 - **Do NOT call `update_markdown_cells` if the improved content is effectively identical to the original**, even if there are minor formatting differences (e.g., extra spaces, trailing newlines, or line ending variations). "Effectively identical" means the rendered markdown output would look the same to a reader.
-- If a cell does not need improvement (because it’s already clear, concise, and follows best practices), exclude it entirely from the updates array. Do not include it just to report “no change.”
-- When providing improved content, preserve the original formatting structure as much as possible (e.g., do not add or remove trailing newlines unless it’s part of a meaningful improvement).
+- If a cell does not need improvement (because it's already clear, concise, and follows best practices), exclude it entirely from the updates array. Do not include it just to report "no change."
+- When providing improved content, preserve the original formatting structure as much as possible (e.g., do not add or remove trailing newlines unless it's part of a meaningful improvement).
 
 Never modify or suggest changes to code cells.
 """.strip()
@@ -149,11 +149,9 @@ Never modify or suggest changes to code cells.
                 {"role": "user", "content": notebook_md}
             ],
             tools=tools,
-            tool_choice="required",
             temperature=0.0,
             max_tokens=128_000
         )
-        print(completion)
         print("API call completed.")
     except Exception as e:
         print(colored_text(f"Error during API call: {str(e)}", 'red'))
@@ -214,8 +212,18 @@ Never modify or suggest changes to code cells.
     print(f"\nCompleted! Improved notebook saved to {notebook_path}")
     return notebook_path
 
-import sys
-from notebroom.main import main
+def main():
+    """Entry point for the command line tool."""
+    if len(sys.argv) < 2:
+        print("Usage: notebroom notebook.ipynb [repeat_count]")
+        sys.exit(1)
+    
+    notebook_path = sys.argv[1]
+    repeat_count = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 1
+    
+    for i in range(repeat_count):
+        print(f"\n--- Iteration {i + 1} of {repeat_count} ---")
+        notebook_path = improve_notebook(notebook_path, verbose=True)
 
 if __name__ == "__main__":
     main()

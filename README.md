@@ -30,11 +30,13 @@ Notebook Refiner takes your Jupyter notebooks and polishes the markdown cells to
 ## Installation
 
 ```bash
-# Install from the local directory
-pip install -e .
+git clone https://github.com/tsilva/notebroom.git
+cd notebroom
+curl -L https://gist.githubusercontent.com/tsilva/258374c1ba2296d8ba22fffbf640f183/raw/venv-install.sh -o install.sh && chmod +x install.sh && ./install.sh
+```
 
-# Or install directly from git
-# pip install git+https://github.com/username/notebroom.git
+```bash
+curl -L https://gist.githubusercontent.com/tsilva/8588cb367242e3db8f1b33c42e4e5e06/raw/venv-run.sh -o run.sh && chmod +x run.sh && ./run.sh
 ```
 
 ## Usage
