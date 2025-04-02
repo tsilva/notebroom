@@ -1,4 +1,4 @@
-# Notebroom
+# notebroom
 
 A tool to improve Jupyter notebook markdown cells using AI.
 
@@ -15,11 +15,13 @@ Notebook Refiner takes your Jupyter notebooks and polishes the markdown cells to
 - **Selective Refinement**: Skips the first cell, headings, and already well-written content.
 - **Code-Safe**: Never modifies code cells—just the markdown.
 - **Terminal Feedback**: Color-coded output shows original vs. improved content.
+- **External Conversion**: Uses the `notebook2md` command for reliable notebook-to-markdown conversion.
 
 ## Requirements
 
 - **Python**: 3.6 or higher
 - **OpenAI API Key**: Required for AI enhancements
+- **notebook2md**: External command for notebook conversion
 - **Dependencies**: 
   - `openai`
   - `python-dotenv`
@@ -76,7 +78,7 @@ python main.py path/to/your/notebook.ipynb
 
 ## How It Works
 
-1. **Conversion**: Transforms your `.ipynb` file into a markdown-like format for analysis.
+1. **Conversion**: Uses the external `notebook2md` command to transform your `.ipynb` file into a markdown-like format for analysis.
 2. **Analysis**: Sends markdown cells (excluding the first cell and headings) to the AI model.
 3. **Enhancement**: Applies AI-suggested improvements only to cells that need it—think clarity, brevity, or engagement boosts.
 4. **Update**: Saves the refined notebook with updated markdown cells.

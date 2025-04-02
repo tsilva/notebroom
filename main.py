@@ -1,9 +1,10 @@
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 import os
 import json
 import sys
+import subprocess
 from pathlib import Path
 from openai import OpenAI
 from tqdm import tqdm
@@ -23,35 +24,23 @@ def check_env_vars():
         print(colored_text(f"Error: Missing environment variables: {', '.join(missing)}", 'red'))
         sys.exit(1)
 
-def ipynb_to_markdown(ipynb_path):
-    """Convert a Jupyter notebook to a markdown string for processing."""
-    with open(ipynb_path, 'r', encoding='utf-8') as f: 
-        notebook = json.load(f)
-
-    markdown_content = []
-    for i, cell in enumerate(notebook.get('cells', [])):
-        cell_type = cell.get('cell_type', 'unknown')
-        type_abbrev = {'markdown': 'md', 'code': 'code'}.get(cell_type, 'unk')
-        cell_num = str(i + 1)
-        start_delim = f"<-- START:{cell_num}:{type_abbrev} -->\n"
-        end_delim = f"<-- END:{cell_num}:{type_abbrev} -->\n"
-        
-        # Preserve the exact source, including trailing newlines
-        cell_source = ''.join(cell.get('source', []))
-        
-        if cell_type == 'markdown':
-            content = cell_source
-        elif cell_type == 'code':
-            outputs = [f"> Output:\n{''.join(output.get('text', [])).rstrip()}\n" 
-                       for output in cell.get('outputs', []) 
-                       if output.get('output_type') == 'stream' and ''.join(output.get('text', [])).rstrip()]
-            content = cell_source + ''.join(outputs)
-        else:
-            content = ""
-
-        markdown_content.append(start_delim + content + end_delim)
-
-    return ''.join(markdown_content)
+def convert_notebook_to_markdown(notebook_path):
+    """
+    Convert notebook to markdown using the external notebook2md command
+    """
+    try:
+        result = subprocess.run(['notebook2md', str(notebook_path)], 
+                               capture_output=True, 
+                               text=True, 
+                               check=True)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"Error converting notebook to markdown: {e}")
+        print(f"Error output: {e.stderr}")
+        sys.exit(1)
+    except FileNotFoundError:
+        print("Error: notebook2md command not found. Please make sure it's installed and in your PATH.")
+        sys.exit(1)
 
 def improve_notebook(notebook_path, verbose=True):
     """Improve markdown cells in a Jupyter notebook using an AI model."""
@@ -62,7 +51,8 @@ def improve_notebook(notebook_path, verbose=True):
         sys.exit(1)
     
     # Convert notebook to markdown format
-    notebook_md = ipynb_to_markdown(notebook_path)
+    notebook_md = convert_notebook_to_markdown(notebook_path)
+    print(notebook_md)
     
     # Define the tool for the model to specify cell updates
     tools = [
@@ -99,38 +89,14 @@ def improve_notebook(notebook_path, verbose=True):
         }
     ]
     
-    # System prompt with instructions for the model
-    system_prompt = """You are an expert educator 📚 enhancing markdown cells in Jupyter notebooks for AI/ML tutorials. You'll receive notebook markdown cells labeled:
-
-`<-- START:cell_number:cell_type -->`
-`<-- END:cell_number:cell_type -->`
-
-Analyze markdown cells that:
-- Are NOT the first cell (cell_number > 1)
-- Do NOT start with '#'
-
-Improve cells ONLY if the current content:
-- Is unclear, confusing, verbose, or redundant.
-- Contains errors or irrelevant details.
-- Lacks engagement or disrupts flow.
-- Doesn't follow AI/ML tutorial best practices (concise examples, clear style).
-
-Your improved version MUST:
-- Be clear ✨, concise ✂️, and engaging 😊.
-- Correct inaccuracies or vagueness 🛠️.
-- Remove redundancy 📉.
-- Follow AI/ML tutorial best practices (concise examples, consistent style) 🎯.
-- Preserve the original intent, improving transitions for flow.
-- NOT add headings (e.g., `# Heading`).
-
-**Important Instructions for Updates**:
-- Only call `update_markdown_cells` for cells where you have made a meaningful improvement to the content (e.g., rephrased for clarity, corrected errors, removed redundancy, improved engagement).
-- **Do NOT call `update_markdown_cells` if the improved content is effectively identical to the original**, even if there are minor formatting differences (e.g., extra spaces, trailing newlines, or line ending variations). "Effectively identical" means the rendered markdown output would look the same to a reader.
-- If a cell does not need improvement (because it's already clear, concise, and follows best practices), exclude it entirely from the updates array. Do not include it just to report "no change."
-- When providing improved content, preserve the original formatting structure as much as possible (e.g., do not add or remove trailing newlines unless it's part of a meaningful improvement).
-
-Never modify or suggest changes to code cells.
-""".strip()
+    # Read system prompt from file
+    system_prompt_path = Path(__file__).parent / "config" / "system_prompt.txt"
+    try:
+        with open(system_prompt_path, 'r', encoding='utf-8') as f:
+            system_prompt = f.read().strip()
+    except FileNotFoundError:
+        print(colored_text(f"Error: System prompt file not found at {system_prompt_path}", 'red'))
+        sys.exit(1)
 
     # Initialize the OpenAI client
     check_env_vars()
@@ -173,7 +139,10 @@ Never modify or suggest changes to code cells.
             for update in updates:
                 cell_number = int(update["cell_number"])
                 improved_content = update["improved_content"]
-                cell_index = cell_number - 1  # Convert to 0-based index
+                cell_index = cell_number
+                
+                print(f"Updating cell {cell_number}...")
+                print(improved_content)
                 
                 # Skip if cell doesn't exist, is the first cell, or is not a markdown cell
                 if cell_index >= len(notebook['cells']) or cell_index < 0:
