@@ -1,13 +1,40 @@
 from dotenv import load_dotenv
-load_dotenv(override=True)
 
 import os
 import json
 import sys
+import shutil
 import subprocess
 from pathlib import Path
 from openai import OpenAI
 from tqdm import tqdm
+
+
+RED, GREEN, RESET = '\033[31m', '\033[32m', '\033[0m'
+CONFIG_DIR = Path.home() / ".notebroom"
+ENV_PATH = CONFIG_DIR / ".env"
+REQUIRED_VARS = []
+
+def log_err(msg): print(f"{RED}{msg}{RESET}")
+def log_ok(msg): print(f"{GREEN}{msg}{RESET}")
+def fatal(msg): log_err(msg); sys.exit(1)
+
+
+def setup_env():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if not ENV_PATH.exists():
+        try:
+            shutil.copy(Path(__file__).parent / "configs" / ".env.example", ENV_PATH)
+            log_ok(f"✅ Created default env file at {ENV_PATH}")
+            print(f"⚠️  Edit this file with your config and rerun.\n🛠️  Use: nano {ENV_PATH}")
+        except Exception as e:
+            fatal(f"❌ Could not create .env: {e}")
+        sys.exit(1)
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+    missing = [v for v in REQUIRED_VARS if not os.getenv(v)]
+    if missing:
+        fatal(f"Missing env vars: {', '.join(missing)}")
+
 
 # Load environment variables for API access
 def colored_text(text, color):
@@ -186,6 +213,8 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: notebroom notebook.ipynb [repeat_count]")
         sys.exit(1)
+    
+    setup_env()
     
     notebook_path = sys.argv[1]
     repeat_count = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 1
