@@ -32,7 +32,7 @@ def setup_env():
             fatal(f"❌ Could not create .env: {e}")
         sys.exit(1)
     load_dotenv(dotenv_path=ENV_PATH, override=True)
-re
+
 def validate_env():
     missing = [v for v in REQUIRED_VARS if not os.getenv(v)]
     if missing:
