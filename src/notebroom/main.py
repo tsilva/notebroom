@@ -1,7 +1,9 @@
-import re
-from dotenv import load_dotenv
-import os, json, sys, shutil, subprocess
+import os
+import sys
+import json
+import shutil
 from pathlib import Path
+from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
 
@@ -39,15 +41,18 @@ def validate_env():
         fatal(f"Missing env vars: {', '.join(missing)}")
     return {var: os.getenv(var) for var in REQUIRED_VARS}
 
-# === Notebook Conversion ===
-def convert_notebook_to_markdown(notebook_path):
-    try:
-        result = subprocess.run(['notebook2md', str(notebook_path)], capture_output=True, text=True, check=True)
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        fatal(f"Conversion error: {e.stderr}")
-    except FileNotFoundError:
-        fatal("notebook2md not found. Please install it and ensure it's in PATH.")
+# === Extract Markdown Cells ===
+def extract_markdown_cells(notebook_path):
+    notebook = json.loads(Path(notebook_path).read_text(encoding='utf-8'))
+    markdown_cells = []
+    for idx, cell in enumerate(notebook['cells']):
+        if cell['cell_type'] == 'markdown':
+            cell_content = ''.join(cell['source']).strip()
+            markdown_cells.append({
+                "cell_number": idx,
+                "content": cell_content
+            })
+    return notebook, markdown_cells
 
 # === Notebook Improvement ===
 def improve_notebook(path, env_vars, verbose=True):
@@ -55,7 +60,8 @@ def improve_notebook(path, env_vars, verbose=True):
     if not notebook_path.exists() or notebook_path.suffix != ".ipynb":
         fatal(f"Invalid notebook file: {notebook_path}")
 
-    notebook_md = convert_notebook_to_markdown(notebook_path)
+    notebook, markdown_cells = extract_markdown_cells(notebook_path)
+
     system_prompt_path = Path(__file__).parent / "configs" / "system_prompt.txt"
     try:
         system_prompt = system_prompt_path.read_text(encoding='utf-8').strip()
@@ -93,8 +99,10 @@ def improve_notebook(path, env_vars, verbose=True):
         log(f"Improving {notebook_path}...", 'green')
         response = client.chat.completions.create(
             model=env_vars["MODEL_ID"],
-            messages=[{"role": "system", "content": system_prompt},
-                      {"role": "user", "content": notebook_md}],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(markdown_cells)}
+            ],
             tools=tools,
             temperature=0.0,
             max_tokens=128_000
@@ -102,16 +110,16 @@ def improve_notebook(path, env_vars, verbose=True):
     except Exception as e:
         fatal(f"API error: {e}")
 
-    notebook = json.loads(notebook_path.read_text(encoding='utf-8'))
     tool_calls = response.choices[0].message.tool_calls or []
 
     updated = 0
     for call in tool_calls:
         if call.function.name != "update_markdown_cells":
             continue
-        for upd in json.loads(call.function.arguments).get("updates", []):
+        updates = json.loads(call.function.arguments).get("updates", [])
+        for upd in updates:
             idx = upd["cell_number"]
-            if idx < 1 or idx >= len(notebook['cells']):
+            if idx < 0 or idx >= len(notebook['cells']):
                 continue
             cell = notebook['cells'][idx]
             if cell['cell_type'] != 'markdown':
