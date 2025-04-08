@@ -205,28 +205,27 @@ def improve_notebook_multi_pass(path, env_vars, verbose=True):
     notebook, cleaned_cells, notebook_text = extract_notebook_cells(notebook_path)
 
     passes = [
-        # === EXPANSIVE PASSES ===
+        # === EXPANSIVE PHASE ===
         ("Conceptual Expansion", 
-        "Ensure each step in the notebook is fully explained with minimal but sufficient context. Add brief explanations of *why* each step matters to understanding AI/ML concepts. Do not worry about length yet — focus on educational completeness."),
+        "Within the existing markdown cells, add minimal but meaningful clarifications to fully explain concepts. Briefly explain the purpose of each step or command. Do not add new sections or headings — improve content inside the cells only."),
         
         ("Educational Enhancements", 
-        "Strengthen explanations for clarity. Add minimal but helpful clarifications, practical tips, or reminders for learners. Use precise technical language. Make sure the purpose of each step is clear."),
-        
-        # === BALANCING PASSES ===
-        ("Flow & Transitions", 
-        "Improve logical flow between steps. Add short, effective transition phrases to guide the learner smoothly from one concept to the next. Keep transitions tight and efficient."),
-        
-        # === CONTRACTIVE PASSES ===
-        ("Conciseness & Redundancy", 
-        "Eliminate redundant phrases and unnecessary explanations. Sharpen sentences to be direct and compact while retaining all valuable teaching content added earlier."),
-        
-        ("Engagement & Style", 
-        "Refine tone to be professional, clear, and approachable. Use markdown formatting and minimal, well-placed emojis to improve readability. Do not use humor. Make sure explanations feel motivating but efficient."),
-        
-        ("Final Polish", 
-        "Ensure final tone and style consistency. Verify that the notebook is concise, highly educational, technically accurate, and visually engaging with well-applied markdown and emojis. Remove any leftover verbosity.")
-    ]
+        "Strengthen explanations for clarity inside the existing cell content. Use precise technical language and offer helpful details where they are missing. Maintain the original cell structure."),
 
+        # === BALANCING PHASE ===
+        ("Flow & Transitions", 
+        "Inside each cell, improve readability by smoothing transitions between sentences and ideas. Do not create cross-cell flow or add new headings. Keep the cell self-contained."),
+
+        # === CONTRACTIVE PHASE ===
+        ("Conciseness & Redundancy", 
+        "Tighten explanations inside each cell. Remove redundancy while keeping valuable teaching content. Ensure the result is concise, clear, and efficient without losing meaning."),
+
+        ("Engagement & Style", 
+        "Refine tone to be professional and approachable. Use markdown formatting and minimal, well-placed emojis to improve readability **inside existing cells only**. Avoid humor. Keep the style consistent."),
+
+        ("Final Polish", 
+        "Finalize tone, technical clarity, and formatting. Ensure the content of each markdown cell is clean, efficient, technically accurate, and visually engaging. Do not alter notebook structure.")
+    ]
 
     for idx, (pass_name, prompt_addition) in enumerate(passes, start=1):
         log(f"\n🎯 Pass {idx}/{len(passes)}: {pass_name}", 'green')
