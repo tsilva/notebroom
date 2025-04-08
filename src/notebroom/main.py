@@ -41,7 +41,7 @@ def validate_env():
         fatal(f"Missing env vars: {', '.join(missing)}")
     return {var: os.getenv(var) for var in REQUIRED_VARS}
 
-# === Extract Notebook Cells (Improved Version) ===
+# === Extract Notebook Cells ===
 def extract_notebook_cells(notebook_path):
     notebook = json.loads(Path(notebook_path).read_text(encoding='utf-8'))
     cells_text = []
@@ -57,7 +57,6 @@ def extract_notebook_cells(notebook_path):
         execution_count = cell.get('execution_count', None)
         metadata = cell.get('metadata', {})
 
-        # ✅ Use safe non-markdown cell header
         cell_header = f"<|CELL_HEADER|> Cell {idx + 1} of {total_cells} [{cell_type.upper()}]"
         if execution_count is not None:
             cell_header += f" | Execution Count: {execution_count}"
@@ -66,7 +65,6 @@ def extract_notebook_cells(notebook_path):
 
         cells_text.append(cell_header)
 
-        # Add content with appropriate formatting
         if cell_type == 'code':
             cells_text.append("```python")
             cells_text.append(content or "# (Empty code cell)")
@@ -74,7 +72,6 @@ def extract_notebook_cells(notebook_path):
         else:
             cells_text.append(content or "(Empty markdown cell)")
 
-        # Add outputs if applicable
         if cell_type == 'code' and 'outputs' in cell:
             outputs = cell['outputs']
             output_texts = []
@@ -89,12 +86,10 @@ def extract_notebook_cells(notebook_path):
                 cells_text.extend(output_texts)
                 cells_text.append("```")
 
-        # Add explicit separator between cells
         cells_text.append(separator)
 
     cells_text.append("<|NOTEBOOK_END|>")
 
-    # Prepare cleaned_cells for later tracking
     cleaned_cells = [
         {
             "cell_number": idx,
@@ -162,7 +157,6 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
 
     tool_calls = response.choices[0].message.tool_calls or []
 
-    # Build cell number to cleaned_cells index map
     cell_index_map = {cell['cell_number']: idx for idx, cell in enumerate(cleaned_cells)}
 
     updated = 0
@@ -179,14 +173,24 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
             if cell['cell_type'] != 'markdown':
                 log(f"⚠️  Skipped update for non-markdown cell {cell_num}.", 'red')
                 continue
+
+            original_content = ''.join(cell['source']).strip()
+            improved_content = upd['improved_content'].strip()
+
+            # 🚀 Skip section header-only cells
+            if original_content.startswith('#') and all(line.strip().startswith('#') for line in original_content.splitlines() if line.strip()):
+                log(f"⏭️  Skipping section header-only cell {cell_num}.", 'red')
+                continue
+
             if verbose:
                 tqdm.write(f"\nUpdating cell {cell_num}...")
-                tqdm.write(f"Before:\n{''.join(cell['source']).strip()}")
-                tqdm.write(f"After:\n{upd['improved_content']}")
-            cell['source'] = [line + '\n' for line in upd['improved_content'].split('\n')]
+                tqdm.write(f"Before:\n{original_content}")
+                tqdm.write(f"After:\n{improved_content}")
+
+            cell['source'] = [line + '\n' for line in improved_content.split('\n')]
             cleaned_idx = cell_index_map.get(cell_num)
             if cleaned_idx is not None:
-                cleaned_cells[cleaned_idx]['content'] = upd['improved_content']  # Update for next pass
+                cleaned_cells[cleaned_idx]['content'] = improved_content
             updated += 1
 
     if updated:
@@ -205,26 +209,12 @@ def improve_notebook_multi_pass(path, env_vars, verbose=True):
     notebook, cleaned_cells, notebook_text = extract_notebook_cells(notebook_path)
 
     passes = [
-        # === EXPANSIVE PHASE ===
-        ("Conceptual Expansion", 
-        "Within the existing markdown cells, add minimal but meaningful clarifications to fully explain concepts. Briefly explain the purpose of each step or command. Do not add new sections or headings — improve content inside the cells only."),
-        
-        ("Educational Enhancements", 
-        "Strengthen explanations for clarity inside the existing cell content. Use precise technical language and offer helpful details where they are missing. Maintain the original cell structure."),
-
-        # === BALANCING PHASE ===
-        ("Flow & Transitions", 
-        "Inside each cell, improve readability by smoothing transitions between sentences and ideas. Do not create cross-cell flow or add new headings. Keep the cell self-contained."),
-
-        # === CONTRACTIVE PHASE ===
-        ("Conciseness & Redundancy", 
-        "Tighten explanations inside each cell. Remove redundancy while keeping valuable teaching content. Ensure the result is concise, clear, and efficient without losing meaning."),
-
-        ("Engagement & Style", 
-        "Refine tone to be professional and approachable. Use markdown formatting and minimal, well-placed emojis to improve readability **inside existing cells only**. Avoid humor. Keep the style consistent."),
-
-        ("Final Polish", 
-        "Finalize tone, technical clarity, and formatting. Ensure the content of each markdown cell is clean, efficient, technically accurate, and visually engaging. Do not alter notebook structure.")
+        ("Conceptual Expansion", "Within the existing markdown cells, add minimal but meaningful clarifications to fully explain concepts. Briefly explain the purpose of each step or command. Do not add new sections or headings — improve content inside the cells only."),
+        ("Educational Enhancements", "Strengthen explanations for clarity inside the existing cell content. Use precise technical language and offer helpful details where they are missing. Maintain the original cell structure."),
+        ("Flow & Transitions", "Inside each cell, improve readability by smoothing transitions between sentences and ideas. Do not create cross-cell flow or add new headings. Keep the cell self-contained."),
+        ("Conciseness & Redundancy", "Tighten explanations inside each cell. Remove redundancy while keeping valuable teaching content. Ensure the result is concise, clear, and efficient without losing meaning."),
+        ("Engagement & Style", "Refine tone to be professional and approachable. Use markdown formatting and minimal, well-placed emojis to improve readability **inside existing cells only**. Avoid humor. Keep the style consistent."),
+        ("Final Polish", "Finalize tone, technical clarity, and formatting. Ensure the content of each markdown cell is clean, efficient, technically accurate, and visually engaging. Do not alter notebook structure.")
     ]
 
     for idx, (pass_name, prompt_addition) in enumerate(passes, start=1):
