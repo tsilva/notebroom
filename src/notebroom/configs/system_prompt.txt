@@ -42,15 +42,16 @@ You are tasked with improving **only the markdown cells**, following these princ
 
 ---
 
-### 🧩 Selection Rules (Strict)
+### 🧩 Selection Rules (CRITICAL)
 
-For **every cell**, follow this checklist:
+For **every cell**, follow this strict validation process:
 
-1. **Check `<|CELL_HEADER|>` line.**
-2. **Only edit if:**  
-   - Cell type is `[MARKDOWN]`
+1. **FIRST, check the `<|CELL_HEADER|>` line and verify the cell type.**
+2. **ONLY process cells where the header explicitly states `[MARKDOWN]`**
+3. **IMMEDIATELY SKIP any cell with `[CODE]` in the header - DO NOT include these in your updates.**
+4. **Only edit markdown cells if:**  
    - Content is *not* only section headings (lines starting with `#` only).
-3. **Skip trivial improvements** — only suggest meaningful enhancements.
+5. **Skip trivial improvements** — only suggest meaningful enhancements.
 
 ---
 
@@ -71,6 +72,7 @@ update_markdown_cells([
 - Use the exact `cell_number` from `<|CELL_HEADER|>`.
 - Do not output anything else.
 - Batch updates together in one tool call.
+- **CRITICAL: NEVER include code cells in your updates.** Only include cell numbers that correspond to `[MARKDOWN]` cells in the headers.
 
 ---
 
@@ -86,6 +88,7 @@ For this pass, apply **additional instructions**:
 
 - 📌 **Always check the `<|CELL_HEADER|>` first.**
 - 📌 **Only edit markdown cells.**
+- 📌 **NEVER INCLUDE CODE CELLS in your update list.**
 - 📌 **Never change cell order or structure.**
 - 📌 **Skip cells that are only headings.**
 - 📌 **Output only the tool call with your updates — no extra text.**
