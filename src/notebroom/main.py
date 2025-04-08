@@ -275,7 +275,7 @@ def improve_notebook(path: str, env_vars: Dict[str, str], tasks: List[str], verb
             notebook, cleaned_cells, env_vars, pass_name, prompt_addition, notebook_text, verbose
         )
 
-    output_path = notebook_path.with_name(f"{notebook_path.stem}-improved.ipynb")
+    output_path = notebook_path.with_name(f"{notebook_path.stem}.ipynb")
     nbformat.write(nbformat.from_dict(notebook), str(output_path))
     log(f"\n✅ Improvement complete! Output: {output_path}", 'green')
     return str(output_path)
