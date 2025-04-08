@@ -7,13 +7,24 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
 import textwrap
-import black  # Added for code formatting
+import black
+import argparse
 
 # === Constants ===
 RED, GREEN, RESET = '\033[31m', '\033[32m', '\033[0m'
 CONFIG_DIR = Path.home() / ".notebroom"
 ENV_PATH = CONFIG_DIR / ".env"
 REQUIRED_VARS = ["OPENROUTER_BASE_URL", "OPENROUTER_API_KEY", "MODEL_ID"]
+
+PASS_MAP = {
+    "expand": ("Conceptual Expansion", "Within the existing markdown cells, add minimal but meaningful clarifications to fully explain concepts. Briefly explain the purpose of each step or command. Do not add new sections or headings — improve content inside the cells only."),
+    "educate": ("Educational Enhancements", "Strengthen explanations for clarity inside the existing cell content. Use precise technical language and offer helpful details where they are missing. Maintain the original cell structure."),
+    "flow": ("Flow & Transitions", "Inside each cell, improve readability by smoothing transitions between sentences and ideas. Do not create cross-cell flow or add new headings. Keep the cell self-contained."),
+    "contract": ("Conciseness & Redundancy", "Tighten explanations inside each cell. Remove redundancy while keeping valuable teaching content. Ensure the result is concise, clear, and efficient without losing meaning."),
+    "style": ("Engagement & Style", "Refine tone to be professional and approachable. Use markdown formatting and minimal, well-placed emojis to improve readability **inside existing cells only**. Avoid humor. Keep the style consistent."),
+    "polish": ("Final Polish", "Finalize tone, technical clarity, and formatting. Ensure the content of each markdown cell is clean, efficient, technically accurate, and visually engaging. Do not alter notebook structure."),
+    "format-code": ("Code Formatter", "Format code cells using Black."),
+}
 
 # === Helper Functions ===
 def normalize_indentation(text, spaces=4):
@@ -216,60 +227,61 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
 
     return notebook, cleaned_cells
 
-# === Multi-Pass Refinement ===
-def improve_notebook_multi_pass(path, env_vars, verbose=True):
+# === Main Improvement ===
+def improve_notebook(path, env_vars, tasks, verbose=True):
     notebook_path = Path(path)
     if not notebook_path.exists() or notebook_path.suffix != ".ipynb":
         fatal(f"Invalid notebook file: {notebook_path}")
 
     notebook, cleaned_cells, notebook_text = extract_notebook_cells(notebook_path)
 
-    passes = [
-        ("Conceptual Expansion", "Within the existing markdown cells, add minimal but meaningful clarifications to fully explain concepts. Briefly explain the purpose of each step or command. Do not add new sections or headings — improve content inside the cells only."),
-        ("Educational Enhancements", "Strengthen explanations for clarity inside the existing cell content. Use precise technical language and offer helpful details where they are missing. Maintain the original cell structure."),
-        ("Flow & Transitions", "Inside each cell, improve readability by smoothing transitions between sentences and ideas. Do not create cross-cell flow or add new headings. Keep the cell self-contained."),
-        ("Conciseness & Redundancy", "Tighten explanations inside each cell. Remove redundancy while keeping valuable teaching content. Ensure the result is concise, clear, and efficient without losing meaning."),
-        ("Engagement & Style", "Refine tone to be professional and approachable. Use markdown formatting and minimal, well-placed emojis to improve readability **inside existing cells only**. Avoid humor. Keep the style consistent."),
-        ("Final Polish", "Finalize tone, technical clarity, and formatting. Ensure the content of each markdown cell is clean, efficient, technically accurate, and visually engaging. Do not alter notebook structure.")
-    ]
+    for idx, task_id in enumerate(tasks, start=1):
+        if task_id == "format-code":
+            formatted = 0
+            for cell in notebook['cells']:
+                if cell['cell_type'] == 'code':
+                    original_code = ''.join(cell['source'])
+                    formatted_code = format_code_cell(original_code)
+                    if formatted_code != original_code:
+                        cell['source'] = [line + '\n' for line in formatted_code.splitlines()]
+                        formatted += 1
+            if formatted:
+                log(f"✅ Formatted {formatted} code cells with Black", 'green')
+            else:
+                log(f"ℹ️  Code cells already properly formatted", 'green')
+            continue
 
-    for idx, (pass_name, prompt_addition) in enumerate(passes, start=1):
-        log(f"\n🎯 Pass {idx}/{len(passes)}: {pass_name}", 'green')
+        pass_name, prompt_addition = PASS_MAP.get(task_id, (None, None))
+        if not pass_name:
+            log(f"⚠️  Unknown task ID '{task_id}'. Skipping.", 'red')
+            continue
+
+        log(f"\n🎯 Task {idx}/{len(tasks)}: {pass_name}", 'green')
         notebook, cleaned_cells = run_improvement_pass(
             notebook, cleaned_cells, env_vars, pass_name, prompt_addition, notebook_text, verbose
         )
 
-    # === Format code cells with Black ===
-    formatted = 0
-    for cell in notebook['cells']:
-        if cell['cell_type'] == 'code':
-            original_code = ''.join(cell['source'])
-            formatted_code = format_code_cell(original_code)
-            if formatted_code != original_code:
-                cell['source'] = [line + '\n' for line in formatted_code.splitlines()]
-                formatted += 1
-
-    if formatted:
-        log(f"✅ Formatted {formatted} code cells with Black", 'green')
-    else:
-        log(f"ℹ️  Code cells already properly formatted", 'green')
-
     output_path = notebook_path.with_name(f"{notebook_path.stem}-improved.ipynb")
     output_path.write_text(json.dumps(notebook, indent=2), encoding='utf-8')
-    log(f"\n✅ Multi-pass improvement complete! Output: {output_path}", 'green')
+    log(f"\n✅ Improvement complete! Output: {output_path}", 'green')
     return str(output_path)
 
 # === CLI Entrypoint ===
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: notebroom notebook.ipynb")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Notebroom - Notebook Improver")
+    parser.add_argument("notebook", help="Path to the notebook file (.ipynb)")
+    parser.add_argument(
+        "--tasks",
+        nargs="+",
+        default=list(PASS_MAP.keys()),
+        help=f"Sequence of tasks to run (default: normal mode). Available: {', '.join(PASS_MAP.keys())}"
+    )
+    args = parser.parse_args()
 
     setup_env()
     env_vars = validate_env()
-    notebook_path = sys.argv[1]
 
-    improve_notebook_multi_pass(notebook_path, env_vars, verbose=True)
+    improve_notebook(args.notebook, env_vars, tasks=args.tasks, verbose=True)
 
 if __name__ == "__main__":
     main()
