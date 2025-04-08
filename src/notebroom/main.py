@@ -6,12 +6,27 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
+import textwrap
+import black  # Added for code formatting
 
 # === Constants ===
 RED, GREEN, RESET = '\033[31m', '\033[32m', '\033[0m'
 CONFIG_DIR = Path.home() / ".notebroom"
 ENV_PATH = CONFIG_DIR / ".env"
 REQUIRED_VARS = ["OPENROUTER_BASE_URL", "OPENROUTER_API_KEY", "MODEL_ID"]
+
+# === Helper Functions ===
+def normalize_indentation(text, spaces=4):
+    return textwrap.indent(textwrap.dedent(text), ' ' * spaces).rstrip()
+
+def format_code_cell(code: str) -> str:
+    try:
+        return black.format_str(code, mode=black.Mode())
+    except black.NothingChanged:
+        return code
+    except Exception as e:
+        log(f"⚠️ Black failed to format code: {e}", 'red')
+        return code
 
 # === Logging ===
 def log(msg, color=None):
@@ -67,7 +82,8 @@ def extract_notebook_cells(notebook_path):
 
         if cell_type == 'code':
             cells_text.append("```python")
-            cells_text.append(content or "# (Empty code cell)")
+            normalized_content = normalize_indentation(content or "# (Empty code cell)")
+            cells_text.append(normalized_content)
             cells_text.append("```")
         else:
             cells_text.append(content or "(Empty markdown cell)")
@@ -83,7 +99,8 @@ def extract_notebook_cells(notebook_path):
             if output_texts:
                 cells_text.append("*Output:*")
                 cells_text.append("```")
-                cells_text.extend(output_texts)
+                normalized_output = "\n".join(normalize_indentation(output) for output in output_texts)
+                cells_text.append(normalized_output)
                 cells_text.append("```")
 
         cells_text.append(separator)
@@ -177,7 +194,6 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
             original_content = ''.join(cell['source']).strip()
             improved_content = upd['improved_content'].strip()
 
-            # 🚀 Skip section header-only cells
             if original_content.startswith('#') and all(line.strip().startswith('#') for line in original_content.splitlines() if line.strip()):
                 log(f"⏭️  Skipping section header-only cell {cell_num}.", 'red')
                 continue
@@ -222,6 +238,21 @@ def improve_notebook_multi_pass(path, env_vars, verbose=True):
         notebook, cleaned_cells = run_improvement_pass(
             notebook, cleaned_cells, env_vars, pass_name, prompt_addition, notebook_text, verbose
         )
+
+    # === Format code cells with Black ===
+    formatted = 0
+    for cell in notebook['cells']:
+        if cell['cell_type'] == 'code':
+            original_code = ''.join(cell['source'])
+            formatted_code = format_code_cell(original_code)
+            if formatted_code != original_code:
+                cell['source'] = [line + '\n' for line in formatted_code.splitlines()]
+                formatted += 1
+
+    if formatted:
+        log(f"✅ Formatted {formatted} code cells with Black", 'green')
+    else:
+        log(f"ℹ️  Code cells already properly formatted", 'green')
 
     output_path = notebook_path.with_name(f"{notebook_path.stem}-improved.ipynb")
     output_path.write_text(json.dumps(notebook, indent=2), encoding='utf-8')
