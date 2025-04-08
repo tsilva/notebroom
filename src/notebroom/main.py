@@ -9,6 +9,8 @@ from tqdm import tqdm
 import textwrap
 import black
 import argparse
+import nbformat
+from typing import List, Tuple, Dict, Any, Optional
 
 # === Constants ===
 RED, GREEN, RESET = '\033[31m', '\033[32m', '\033[0m'
@@ -27,7 +29,7 @@ PASS_MAP = {
 }
 
 # === Helper Functions ===
-def normalize_indentation(text, spaces=4):
+def normalize_indentation(text: str, spaces: int = 4) -> str:
     return textwrap.indent(textwrap.dedent(text), ' ' * spaces).rstrip()
 
 def format_code_cell(code: str) -> str:
@@ -40,36 +42,39 @@ def format_code_cell(code: str) -> str:
         return code
 
 # === Logging ===
-def log(msg, color=None):
+def log(msg: str, color: Optional[str] = None) -> None:
     colors = {'red': RED, 'green': GREEN}
     print(f"{colors.get(color, '')}{msg}{RESET if color else ''}")
 
-def fatal(msg):
+def fatal(msg: str) -> None:
     log(msg, 'red')
     sys.exit(1)
 
 # === Setup ===
-def setup_env():
+def setup_env() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    example_env = Path(__file__).parent / "configs" / ".env.example"
     if not ENV_PATH.exists():
+        if not example_env.exists():
+            fatal(f"❌ Example .env file not found at {example_env}")
         try:
-            shutil.copy(Path(__file__).parent / "configs" / ".env.example", ENV_PATH)
+            shutil.copy(example_env, ENV_PATH)
             log(f"✅ Created default env file at {ENV_PATH}", 'green')
             print(f"⚠️  Edit this file and rerun.\n🛠️  Use: nano {ENV_PATH}")
         except Exception as e:
-            fatal(f"❌ Could not create .env: {e}")
+            fatal(f"❌ Could not create .env: {str(e)}")
         sys.exit(1)
     load_dotenv(dotenv_path=ENV_PATH, override=True)
 
-def validate_env():
+def validate_env() -> Dict[str, str]:
     missing = [v for v in REQUIRED_VARS if not os.getenv(v)]
     if missing:
         fatal(f"Missing env vars: {', '.join(missing)}")
     return {var: os.getenv(var) for var in REQUIRED_VARS}
 
 # === Extract Notebook Cells ===
-def extract_notebook_cells(notebook_path):
-    notebook = json.loads(Path(notebook_path).read_text(encoding='utf-8'))
+def extract_notebook_cells(notebook_path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]], str]:
+    notebook = json.loads(notebook_path.read_text(encoding='utf-8'))
     cells_text = []
 
     total_cells = len(notebook['cells'])
@@ -107,6 +112,8 @@ def extract_notebook_cells(notebook_path):
                     output_texts.append(''.join(output['text']).strip())
                 elif output.get('data', {}).get('text/plain'):
                     output_texts.append(''.join(output['data']['text/plain']).strip())
+                elif output.get('data', {}).get('text/html'):
+                    output_texts.append(''.join(output['data']['text/html']).strip())
             if output_texts:
                 cells_text.append("*Output:*")
                 cells_text.append("```")
@@ -130,7 +137,15 @@ def extract_notebook_cells(notebook_path):
     return notebook, cleaned_cells, '\n'.join(cells_text)
 
 # === Notebook Improvement Pass ===
-def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_addition, notebook_text, verbose=True):
+def run_improvement_pass(
+    notebook: Dict[str, Any],
+    cleaned_cells: List[Dict[str, Any]],
+    env_vars: Dict[str, str],
+    pass_name: str,
+    prompt_addition: str,
+    notebook_text: str,
+    verbose: bool = True
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     system_prompt_path = Path(__file__).parent / "configs" / "system_prompt.txt"
     try:
         system_prompt = system_prompt_path.read_text(encoding='utf-8').strip()
@@ -141,32 +156,30 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
 
     client = OpenAI(base_url=env_vars["OPENROUTER_BASE_URL"], api_key=env_vars["OPENROUTER_API_KEY"])
 
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "update_markdown_cells",
-                "description": "Update markdown cells in the notebook",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "updates": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "cell_number": {"type": "integer"},
-                                    "improved_content": {"type": "string"}
-                                },
-                                "required": ["cell_number", "improved_content"]
-                            }
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "update_markdown_cells",
+            "description": "Update markdown cells in the notebook",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "updates": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "cell_number": {"type": "integer"},
+                                "improved_content": {"type": "string"}
+                            },
+                            "required": ["cell_number", "improved_content"]
                         }
-                    },
-                    "required": ["updates"]
-                }
+                    }
+                },
+                "required": ["updates"]
             }
         }
-    ]
+    }]
 
     try:
         log(f"🔍 Running {pass_name} pass...", 'green')
@@ -181,13 +194,13 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
             max_tokens=128_000
         )
     except Exception as e:
-        fatal(f"API error during {pass_name} pass: {e}")
+        fatal(f"API error during {pass_name} pass: {str(e).splitlines()[0]}")  # Sanitize output
 
-    tool_calls = response.choices[0].message.tool_calls or []
+    tool_calls = getattr(getattr(response.choices[0].message, 'tool_calls', None), '__iter__', lambda: [])()
 
     cell_index_map = {cell['cell_number']: idx for idx, cell in enumerate(cleaned_cells)}
-
     updated = 0
+
     for call in tool_calls:
         if call.function.name != "update_markdown_cells":
             continue
@@ -197,6 +210,7 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
             if cell_num < 0 or cell_num >= len(notebook['cells']):
                 log(f"⚠️  Skipped update for invalid cell number {cell_num}.", 'red')
                 continue
+
             cell = notebook['cells'][cell_num]
             if cell['cell_type'] != 'markdown':
                 log(f"⚠️  Skipped update for non-markdown cell {cell_num}.", 'red')
@@ -228,7 +242,7 @@ def run_improvement_pass(notebook, cleaned_cells, env_vars, pass_name, prompt_ad
     return notebook, cleaned_cells
 
 # === Main Improvement ===
-def improve_notebook(path, env_vars, tasks, verbose=True):
+def improve_notebook(path: str, env_vars: Dict[str, str], tasks: List[str], verbose: bool = True) -> str:
     notebook_path = Path(path)
     if not notebook_path.exists() or notebook_path.suffix != ".ipynb":
         fatal(f"Invalid notebook file: {notebook_path}")
@@ -262,12 +276,12 @@ def improve_notebook(path, env_vars, tasks, verbose=True):
         )
 
     output_path = notebook_path.with_name(f"{notebook_path.stem}-improved.ipynb")
-    output_path.write_text(json.dumps(notebook, indent=2), encoding='utf-8')
+    nbformat.write(nbformat.from_dict(notebook), str(output_path))
     log(f"\n✅ Improvement complete! Output: {output_path}", 'green')
     return str(output_path)
 
 # === CLI Entrypoint ===
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Notebroom - Notebook Improver")
     parser.add_argument("notebook", help="Path to the notebook file (.ipynb)")
     parser.add_argument(
