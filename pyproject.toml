@@ -15,6 +15,7 @@ dependencies = [
   "tqdm",
   "black",
   "openai",
+  "nbformat",
   "python-dotenv"
 ]
 classifiers = [
