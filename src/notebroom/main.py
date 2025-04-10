@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
 import textwrap
-import black
+import autopep8
 import argparse
 import nbformat
 from typing import List, Tuple, Dict, Any, Optional
@@ -34,11 +34,17 @@ def normalize_indentation(text: str, spaces: int = 4) -> str:
 
 def format_code_cell(code: str) -> str:
     try:
-        return black.format_str(code, mode=black.Mode())
-    except black.NothingChanged:
-        return code
+        # Use autopep8 with minimal settings - focus on indentation only
+        return autopep8.fix_code(
+            code,
+            options={
+                'aggressive': 0,  # Minimal changes
+                'select': ['E101', 'E111', 'E112', 'E113', 'E114', 'E115', 'E116', 'E117'],  # Only indentation
+                'ignore': ['E2', 'E3', 'E4', 'E5', 'W'],  # Ignore everything else
+            }
+        )
     except Exception as e:
-        log(f"⚠️ Black failed to format code: {e}", 'red')
+        log(f"⚠️ Failed to format code: {e}", 'red')
         return code
 
 # === Logging ===
