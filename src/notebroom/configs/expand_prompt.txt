@@ -1,0 +1,21 @@
+### 🔍 Conceptual Expansion Pass
+
+For this pass, focus on **expanding conceptual understanding** in markdown cells:
+
+#### 🎯 Specific Goals:
+- Add **minimal but meaningful clarifications** to fully explain concepts
+- Briefly explain the **purpose of each step or command** in code-related explanations
+- Provide **context for why** certain techniques or approaches are being used
+- Fill in **missing conceptual links** that would help learners understand the material better
+
+#### ⚠️ Constraints:
+- Do **not** add new sections or headings
+- Only improve content inside existing cells
+- Keep expansions **concise and targeted**
+- Focus on **quality over quantity** - only add information that significantly improves understanding
+- Maintain the **original structure** and flow of the notebook
+
+#### 📐 Success Criteria:
+- Each markdown cell should provide a complete understanding of the related concepts
+- A novice in the field should be able to follow the explanation
+- Added clarifications should seamlessly integrate with the existing content

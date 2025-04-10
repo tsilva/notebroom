@@ -1,0 +1,24 @@
+### 🎨 Engagement & Style Pass
+
+For this pass, focus on **refining tone and improving formatting** in markdown cells:
+
+#### 🎯 Specific Goals:
+- Ensure tone is professional yet approachable
+- Apply consistent markdown formatting (headers, lists, emphasis) for readability
+- Add minimal, well-placed emojis to highlight key points or warnings
+- Improve visual hierarchy through proper formatting
+- Enhance readability through consistent styling
+
+#### ⚠️ Constraints:
+- Maintain a professional educational tone - avoid humor or overly casual language
+- Use emojis sparingly and purposefully (only for emphasis, warnings, or key points)
+- Apply formatting that improves understanding, not just decoration
+- Keep style consistent throughout the notebook
+- Don't alter technical content or explanations
+
+#### 📐 Success Criteria:
+- Markdown formatting should enhance readability and visual structure
+- Content should appear visually engaging but professional
+- Formatting should highlight important information effectively
+- Style should be consistent across all markdown cells
+- Reading experience should be improved without changing technical meaning

@@ -1,0 +1,24 @@
+### 📏 Conciseness & Redundancy Pass
+
+For this pass, focus on **tightening explanations and removing redundancy** in markdown cells:
+
+#### 🎯 Specific Goals:
+- Remove unnecessary repetition within cells
+- Convert wordy explanations into concise, direct statements
+- Eliminate filler words and phrases that don't add value
+- Combine related points that are unnecessarily separated
+- Replace lengthy descriptions with more efficient phrasing
+
+#### ⚠️ Constraints:
+- Keep all valuable teaching content and technical details
+- Don't sacrifice clarity for brevity
+- Maintain all important conceptual explanations
+- Don't remove unique examples or helpful clarifications
+- Ensure all original teaching points remain intact
+
+#### 📐 Success Criteria:
+- Content should be noticeably more concise than the original
+- All essential information should be preserved
+- Reading should be more efficient without losing meaning
+- Explanations should feel tight and focused
+- Technical accuracy must be maintained or improved
