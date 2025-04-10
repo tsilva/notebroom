@@ -18,14 +18,15 @@ CONFIG_DIR = Path.home() / ".notebroom"
 ENV_PATH = CONFIG_DIR / ".env"
 REQUIRED_VARS = ["OPENROUTER_BASE_URL", "OPENROUTER_API_KEY", "MODEL_ID"]
 
+# Map of pass IDs to their display names and corresponding system prompt files
 PASS_MAP = {
-    "expand": ("Conceptual Expansion", "Within the existing markdown cells, add minimal but meaningful clarifications to fully explain concepts. Briefly explain the purpose of each step or command. Do not add new sections or headings — improve content inside the cells only."),
-    "educate": ("Educational Enhancements", "Strengthen explanations for clarity inside the existing cell content. Use precise technical language and offer helpful details where they are missing. Maintain the original cell structure."),
-    "flow": ("Flow & Transitions", "Inside each cell, improve readability by smoothing transitions between sentences and ideas. Do not create cross-cell flow or add new headings. Keep the cell self-contained."),
-    "contract": ("Conciseness & Redundancy", "Tighten explanations inside each cell. Remove redundancy while keeping valuable teaching content. Ensure the result is concise, clear, and efficient without losing meaning."),
-    "style": ("Engagement & Style", "Refine tone to be professional and approachable. Use markdown formatting and minimal, well-placed emojis to improve readability **inside existing cells only**. Avoid humor. Keep the style consistent."),
-    "polish": ("Final Polish", "Finalize tone, technical clarity, and formatting. Ensure the content of each markdown cell is clean, efficient, technically accurate, and visually engaging. Do not alter notebook structure."),
-    "format-code": ("Code Formatter", "Format code cells using Black."),
+    "expand": ("Conceptual Expansion", "expand_prompt.txt"),
+    "educate": ("Educational Enhancements", "educate_prompt.txt"),
+    "flow": ("Flow & Transitions", "flow_prompt.txt"),
+    "contract": ("Conciseness & Redundancy", "contract_prompt.txt"),
+    "style": ("Engagement & Style", "style_prompt.txt"),
+    "polish": ("Final Polish", "polish_prompt.txt"),
+    "format-code": ("Code Formatter", None),  # No prompt file needed for code formatting
 }
 
 # === Helper Functions ===
@@ -148,17 +149,29 @@ def run_improvement_pass(
     cleaned_cells: List[Dict[str, Any]],
     env_vars: Dict[str, str],
     pass_name: str,
-    prompt_addition: str,
+    prompt_file: str,
     notebook_text: str,
     verbose: bool = True
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    system_prompt_path = Path(__file__).parent / "configs" / "system_prompt.txt"
+    # Load base system prompt
+    base_prompt_path = Path(__file__).parent / "configs" / "base_system_prompt.txt"
     try:
-        system_prompt = system_prompt_path.read_text(encoding='utf-8').strip()
+        system_prompt = base_prompt_path.read_text(encoding='utf-8').strip()
     except FileNotFoundError:
-        fatal(f"System prompt not found at {system_prompt_path}")
+        fatal(f"Base system prompt not found at {base_prompt_path}")
 
-    system_prompt = system_prompt.replace("{{CURRENT_PASS_INSTRUCTIONS}}", prompt_addition)
+    # Load pass-specific prompt if provided
+    pass_prompt = ""
+    if prompt_file:
+        pass_prompt_path = Path(__file__).parent / "configs" / prompt_file
+        try:
+            pass_prompt = pass_prompt_path.read_text(encoding='utf-8').strip()
+        except FileNotFoundError:
+            fatal(f"Pass-specific prompt not found at {pass_prompt_path}")
+
+    # Combine prompts if we have a pass-specific prompt
+    if pass_prompt:
+        system_prompt = f"{system_prompt}\n\n{pass_prompt}"
 
     client = OpenAI(base_url=env_vars["OPENROUTER_BASE_URL"], api_key=env_vars["OPENROUTER_API_KEY"])
 
@@ -271,14 +284,14 @@ def improve_notebook(path: str, env_vars: Dict[str, str], tasks: List[str], verb
                 log(f"ℹ️  Code cells already properly formatted", 'green')
             continue
 
-        pass_name, prompt_addition = PASS_MAP.get(task_id, (None, None))
+        pass_name, prompt_file = PASS_MAP.get(task_id, (None, None))
         if not pass_name:
             log(f"⚠️  Unknown task ID '{task_id}'. Skipping.", 'red')
             continue
 
         log(f"\n🎯 Task {idx}/{len(tasks)}: {pass_name}", 'green')
         notebook, cleaned_cells = run_improvement_pass(
-            notebook, cleaned_cells, env_vars, pass_name, prompt_addition, notebook_text, verbose
+            notebook, cleaned_cells, env_vars, pass_name, prompt_file, notebook_text, verbose
         )
 
     output_path = notebook_path.with_name(f"{notebook_path.stem}.ipynb")
