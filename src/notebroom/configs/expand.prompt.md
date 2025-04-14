@@ -1,4 +1,4 @@
-### 🧠 Pass 1: Conceptual Depth + Flow Improvement
+### 🧠 Pass: Conceptual Depth + Flow Improvement
 
 For this pass, focus on **enhancing conceptual clarity** and **improving the flow of explanations** within markdown cells.
 
@@ -13,6 +13,7 @@ For this pass, focus on **enhancing conceptual clarity** and **improving the flo
 
 #### ⚠️ Constraints:
 - Work **within existing cells** — no new sections or headings
+- **Never** ever add headings/titles to cells
 - Keep cells **self-contained** (no cross-cell references)
 - Preserve the original teaching flow and style
 - Avoid overwriting or removing important original explanations
