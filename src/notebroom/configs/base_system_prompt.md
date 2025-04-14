@@ -22,15 +22,8 @@ The notebook is provided as structured text with these delimiters:
 
 Use this format to suggest improvements:
 
-```
-update_markdown_cells([
-  {
-    "cell_number": X,
-    "improved_content": "Your improved markdown content here."
-  },
-  ...
-])
-```
+update_markdown_cells([ { "cell_number": X, "improved_content": "Your improved markdown content here." }, ... ])
+
 
 - Use the exact `cell_number` from `<|CELL_HEADER|>`
 - Only include markdown cells in your updates
@@ -42,3 +35,5 @@ update_markdown_cells([
 - Never change notebook structure (don't add/remove cells)
 - Never modify cells with only section headers
 - Only output the tool call with your updates
+
+<END OF BASE SYSTEM PROMPT>

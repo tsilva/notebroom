@@ -18,13 +18,9 @@ CONFIG_DIR = Path.home() / ".notebroom"
 ENV_PATH = CONFIG_DIR / ".env"
 REQUIRED_VARS = ["OPENROUTER_BASE_URL", "OPENROUTER_API_KEY", "MODEL_ID"]
 PASS_MAP = {
-    "expand": ("Conceptual Expansion", "expand_prompt.txt"),
-    "educate": ("Educational Enhancements", "educate_prompt.txt"),
-    "flow": ("Flow & Transitions", "flow_prompt.txt"),
-    "contract": ("Conciseness & Redundancy", "contract_prompt.txt"),
-    "style": ("Engagement & Style", "style_prompt.txt"),
-    "polish": ("Final Polish", "polish_prompt.txt"),
-    "format-code": ("Code Formatter", None),
+    "expand": "Conceptual Expansion",
+    "contract": "Conciseness & Redundancy",
+    "format-code": "Code Formatter"
 }
 SEPARATOR = "<|CELL_SEPARATOR|>"
 
@@ -117,7 +113,7 @@ def extract_cells(notebook_path: Path) -> Tuple[Dict, List[Dict], str]:
 # === AI Passes ===
 
 def apply_pass(client, notebook, cleaned_cells, env_vars, task_id, notebook_text) -> Tuple[Dict, List[Dict]]:
-    pass_name, prompt_file = PASS_MAP[task_id]
+    pass_name = PASS_MAP[task_id]
     log(f"\n🎯 Starting pass: {pass_name}", 'green')
 
     if task_id == "format-code":
@@ -132,9 +128,11 @@ def apply_pass(client, notebook, cleaned_cells, env_vars, task_id, notebook_text
         log(f"✅ Formatted {formatted} code cells" if formatted else "ℹ️ Code already formatted", 'green')
         return notebook, cleaned_cells
 
-    system_prompt = load_prompt("base_system_prompt.txt")
-    if prompt_file:
-        system_prompt += f"\n\n{load_prompt(prompt_file)}"
+        
+    
+    system_prompt = load_prompt("base_system_prompt.md")
+    prompt_file = f"{task_id}.prompt.md"
+    system_prompt += f"\n\n{load_prompt(prompt_file)}"
 
     tools = [{
         "type": "function",
