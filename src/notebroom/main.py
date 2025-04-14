@@ -214,7 +214,7 @@ def improve_notebook(path: str, env_vars: Dict[str, str], tasks: List[str]) -> s
     log(f"\n✅ Improvement complete! Output: {output_path}", 'green')
     return str(output_path)
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Notebroom - Notebook Improver")
     parser.add_argument("notebook", help="Path to the notebook (.ipynb)")
     parser.add_argument("--tasks", nargs="+", default=list(PASS_MAP.keys()), help=f"Tasks to run: {', '.join(PASS_MAP.keys())}")
@@ -222,3 +222,6 @@ if __name__ == "__main__":
 
     env_vars = setup_env()
     improve_notebook(args.notebook, env_vars, args.tasks)
+
+if __name__ == "__main__":
+    main()
