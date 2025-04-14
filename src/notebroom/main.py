@@ -2,23 +2,21 @@ import os
 import sys
 import json
 import shutil
+import textwrap
 from pathlib import Path
+from typing import List, Tuple, Dict, Any, Optional
+import argparse
+
+import autopep8
+import nbformat
 from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
-import textwrap
-import autopep8
-import argparse
-import nbformat
-from typing import List, Tuple, Dict, Any, Optional
 
 # === Constants ===
-RED, GREEN, RESET = '\033[31m', '\033[32m', '\033[0m'
 CONFIG_DIR = Path.home() / ".notebroom"
 ENV_PATH = CONFIG_DIR / ".env"
 REQUIRED_VARS = ["OPENROUTER_BASE_URL", "OPENROUTER_API_KEY", "MODEL_ID"]
-
-# Map of pass IDs to their display names and corresponding system prompt files
 PASS_MAP = {
     "expand": ("Conceptual Expansion", "expand_prompt.txt"),
     "educate": ("Educational Enhancements", "educate_prompt.txt"),
@@ -26,154 +24,117 @@ PASS_MAP = {
     "contract": ("Conciseness & Redundancy", "contract_prompt.txt"),
     "style": ("Engagement & Style", "style_prompt.txt"),
     "polish": ("Final Polish", "polish_prompt.txt"),
-    "format-code": ("Code Formatter", None),  # No prompt file needed for code formatting
+    "format-code": ("Code Formatter", None),
 }
+SEPARATOR = "<|CELL_SEPARATOR|>"
 
-# === Helper Functions ===
-def normalize_indentation(text: str, spaces: int = 4) -> str:
-    return textwrap.indent(textwrap.dedent(text), ' ' * spaces).rstrip()
+# === Helpers ===
 
-def format_code_cell(code: str) -> str:
-    try:
-        # Use autopep8 with minimal settings - focus on indentation only
-        return autopep8.fix_code(
-            code,
-            options={
-                'aggressive': 0,  # Minimal changes
-                'select': ['E101', 'E111', 'E112', 'E113', 'E114', 'E115', 'E116', 'E117'],  # Only indentation
-                'ignore': ['E2', 'E3', 'E4', 'E5', 'W'],  # Ignore everything else
-            }
-        )
-    except Exception as e:
-        log(f"⚠️ Failed to format code: {e}", 'red')
-        return code
-
-# === Logging ===
 def log(msg: str, color: Optional[str] = None) -> None:
-    colors = {'red': RED, 'green': GREEN}
-    print(f"{colors.get(color, '')}{msg}{RESET if color else ''}")
+    colors = {'red': '\033[31m', 'green': '\033[32m', None: ''}
+    print(f"{colors.get(color, '')}{msg}\033[0m")
 
 def fatal(msg: str) -> None:
     log(msg, 'red')
     sys.exit(1)
 
-# === Setup ===
-def setup_env() -> None:
+def normalize_indentation(text: str, spaces: int = 4) -> str:
+    return textwrap.indent(textwrap.dedent(text), ' ' * spaces).rstrip()
+
+def format_code(code: str) -> str:
+    try:
+        return autopep8.fix_code(code, options={
+            'aggressive': 0,
+            'select': ['E101', 'E111', 'E112', 'E113', 'E114', 'E115', 'E116', 'E117'],
+            'ignore': ['E2', 'E3', 'E4', 'E5', 'W'],
+        })
+    except Exception as e:
+        log(f"⚠️ Code format failed: {e}", 'red')
+        return code
+
+def load_prompt(filename: str) -> str:
+    path = Path(__file__).parent / "configs" / filename
+    if not path.exists():
+        fatal(f"Prompt file missing: {path}")
+    return path.read_text(encoding='utf-8').strip()
+
+# === Environment ===
+
+def setup_env() -> Dict[str, str]:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     example_env = Path(__file__).parent / "configs" / ".env.example"
     if not ENV_PATH.exists():
         if not example_env.exists():
-            fatal(f"❌ Example .env file not found at {example_env}")
-        try:
-            shutil.copy(example_env, ENV_PATH)
-            log(f"✅ Created default env file at {ENV_PATH}", 'green')
-            print(f"⚠️  Edit this file and rerun.\n🛠️  Use: nano {ENV_PATH}")
-        except Exception as e:
-            fatal(f"❌ Could not create .env: {str(e)}")
-        sys.exit(1)
-    load_dotenv(dotenv_path=ENV_PATH, override=True)
+            fatal(f"Example .env missing: {example_env}")
+        shutil.copy(example_env, ENV_PATH)
+        log(f"✅ Created .env at {ENV_PATH}. Edit this file before rerunning.", 'green')
+        sys.exit(0)
 
-def validate_env() -> Dict[str, str]:
-    missing = [v for v in REQUIRED_VARS if not os.getenv(v)]
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+    missing = [var for var in REQUIRED_VARS if not os.getenv(var)]
     if missing:
         fatal(f"Missing env vars: {', '.join(missing)}")
     return {var: os.getenv(var) for var in REQUIRED_VARS}
 
-# === Extract Notebook Cells ===
-def extract_notebook_cells(notebook_path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]], str]:
+# === Notebook Parsing ===
+
+def extract_cells(notebook_path: Path) -> Tuple[Dict, List[Dict], str]:
     notebook = json.loads(notebook_path.read_text(encoding='utf-8'))
-    cells_text = []
-
+    cells_text, cleaned_cells = ["<|NOTEBOOK_START|>"], []
     total_cells = len(notebook['cells'])
-    separator = "<|CELL_SEPARATOR|>"
-
-    cells_text.append("<|NOTEBOOK_START|>")
 
     for idx, cell in enumerate(notebook['cells']):
         cell_type = cell['cell_type']
-        content = ''.join(cell['source']).strip()
-        execution_count = cell.get('execution_count', None)
-        metadata = cell.get('metadata', {})
+        content = ''.join(cell['source']).strip() or f"(Empty {cell_type} cell)"
 
-        cell_header = f"<|CELL_HEADER|> Cell {idx + 1} of {total_cells} [{cell_type.upper()}]"
-        if execution_count is not None:
-            cell_header += f" | Execution Count: {execution_count}"
-        if metadata.get('tags'):
-            cell_header += f" | Tags: {', '.join(metadata['tags'])}"
+        header = f"<|CELL_HEADER|> Cell {idx} of {total_cells - 1} [{cell_type.upper()}]"
+        if exec_count := cell.get('execution_count'):
+            header += f" | Execution Count: {exec_count}"
+        if tags := cell.get('metadata', {}).get('tags'):
+            header += f" | Tags: {', '.join(tags)}"
 
-        cells_text.append(cell_header)
-
+        cells_text.append(header)
+        cells_text.append("```python" if cell_type == 'code' else "")
+        cells_text.append(normalize_indentation(content))
         if cell_type == 'code':
-            cells_text.append("```python")
-            normalized_content = normalize_indentation(content or "# (Empty code cell)")
-            cells_text.append(normalized_content)
             cells_text.append("```")
-        else:
-            cells_text.append(content or "(Empty markdown cell)")
 
-        if cell_type == 'code' and 'outputs' in cell:
-            outputs = cell['outputs']
-            output_texts = []
+        if outputs := cell.get('outputs'):
+            outputs_text = []
             for output in outputs:
-                if output.get('text'):
-                    output_texts.append(''.join(output['text']).strip())
-                elif output.get('data', {}).get('text/plain'):
-                    output_texts.append(''.join(output['data']['text/plain']).strip())
-                elif output.get('data', {}).get('text/html'):
-                    output_texts.append(''.join(output['data']['text/html']).strip())
-            if output_texts:
-                cells_text.append("*Output:*")
-                cells_text.append("```")
-                normalized_output = "\n".join(normalize_indentation(output) for output in output_texts)
-                cells_text.append(normalized_output)
-                cells_text.append("```")
+                output_data = output.get('text') or output.get('data', {}).get('text/plain') or output.get('data', {}).get('text/html')
+                if output_data:
+                    outputs_text.append(normalize_indentation(''.join(output_data).strip()))
+            if outputs_text:
+                cells_text.extend(["*Output:*", "```", "\n".join(outputs_text), "```"])
 
-        cells_text.append(separator)
+        cells_text.append(SEPARATOR)
+        cleaned_cells.append({"cell_number": idx, "cell_type": cell_type, "content": content})
 
     cells_text.append("<|NOTEBOOK_END|>")
-
-    cleaned_cells = [
-        {
-            "cell_number": idx,
-            "cell_type": cell['cell_type'],
-            "content": ''.join(cell['source']).strip()
-        }
-        for idx, cell in enumerate(notebook['cells'])
-    ]
-
     return notebook, cleaned_cells, '\n'.join(cells_text)
 
-# === Notebook Improvement Pass ===
-def run_improvement_pass(
-    notebook: Dict[str, Any],
-    cleaned_cells: List[Dict[str, Any]],
-    env_vars: Dict[str, str],
-    pass_name: str,
-    prompt_file: str,
-    notebook_text: str,
-    verbose: bool = True
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    # Load base system prompt
-    base_prompt_path = Path(__file__).parent / "configs" / "base_system_prompt.txt"
-    try:
-        system_prompt = base_prompt_path.read_text(encoding='utf-8').strip()
-    except FileNotFoundError:
-        fatal(f"Base system prompt not found at {base_prompt_path}")
+# === AI Passes ===
 
-    # Load pass-specific prompt if provided
-    pass_prompt = ""
+def apply_pass(client, notebook, cleaned_cells, env_vars, task_id, notebook_text) -> Tuple[Dict, List[Dict]]:
+    pass_name, prompt_file = PASS_MAP[task_id]
+    log(f"\n🎯 Starting pass: {pass_name}", 'green')
+
+    if task_id == "format-code":
+        formatted = 0
+        for cell in notebook['cells']:
+            if cell['cell_type'] == 'code':
+                original = ''.join(cell['source'])
+                formatted_code = format_code(original)
+                if formatted_code != original:
+                    cell['source'] = [line + '\n' for line in formatted_code.splitlines()]
+                    formatted += 1
+        log(f"✅ Formatted {formatted} code cells" if formatted else "ℹ️ Code already formatted", 'green')
+        return notebook, cleaned_cells
+
+    system_prompt = load_prompt("base_system_prompt.txt")
     if prompt_file:
-        pass_prompt_path = Path(__file__).parent / "configs" / prompt_file
-        try:
-            pass_prompt = pass_prompt_path.read_text(encoding='utf-8').strip()
-        except FileNotFoundError:
-            fatal(f"Pass-specific prompt not found at {pass_prompt_path}")
-
-    # Combine prompts if we have a pass-specific prompt
-    if pass_prompt:
-        system_prompt = f"{system_prompt}\n\n{pass_prompt}"
-
-    client = OpenAI(base_url=env_vars["OPENROUTER_BASE_URL"], api_key=env_vars["OPENROUTER_API_KEY"])
+        system_prompt += f"\n\n{load_prompt(prompt_file)}"
 
     tools = [{
         "type": "function",
@@ -201,120 +162,65 @@ def run_improvement_pass(
     }]
 
     try:
-        log(f"🔍 Running {pass_name} pass...", 'green')
         response = client.chat.completions.create(
             model=env_vars["MODEL_ID"],
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": notebook_text}
-            ],
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": notebook_text}],
             tools=tools,
             temperature=0.0,
             max_tokens=128_000
         )
     except Exception as e:
-        fatal(f"API error during {pass_name} pass: {str(e).splitlines()[0]}")  # Sanitize output
+        fatal(f"API error during {pass_name}: {str(e).splitlines()[0]}")
 
     tool_calls = getattr(getattr(response.choices[0].message, 'tool_calls', None), '__iter__', lambda: [])()
-
-    cell_index_map = {cell['cell_number']: idx for idx, cell in enumerate(cleaned_cells)}
+    cell_map = {c['cell_number']: idx for idx, c in enumerate(cleaned_cells)}
     updated = 0
 
     for call in tool_calls:
         if call.function.name != "update_markdown_cells":
             continue
+
         updates = json.loads(call.function.arguments).get("updates", [])
         for upd in updates:
-            cell_num = upd["cell_number"]
-            if cell_num < 0 or cell_num >= len(notebook['cells']):
-                log(f"⚠️  Skipped update for invalid cell number {cell_num}.", 'red')
+            idx = upd["cell_number"]
+            if idx >= len(notebook['cells']) or notebook['cells'][idx]['cell_type'] != 'markdown':
                 continue
 
-            cell = notebook['cells'][cell_num]
-            if cell['cell_type'] != 'markdown':
-                log(f"⚠️  Skipped update for non-markdown cell {cell_num}.", 'red')
-                continue
-
-            original_content = ''.join(cell['source']).strip()
-            improved_content = upd['improved_content'].strip()
-
-            if original_content.startswith('#') and all(line.strip().startswith('#') for line in original_content.splitlines() if line.strip()):
-                log(f"⏭️  Skipping section header-only cell {cell_num}.", 'red')
-                continue
-
-            if verbose:
-                tqdm.write(f"\nUpdating cell {cell_num}...")
-                tqdm.write(f"Before:\n{original_content}")
-                tqdm.write(f"After:\n{improved_content}")
-
-            cell['source'] = [line + '\n' for line in improved_content.split('\n')]
-            cleaned_idx = cell_index_map.get(cell_num)
-            if cleaned_idx is not None:
-                cleaned_cells[cleaned_idx]['content'] = improved_content
+            improved = upd['improved_content'].strip()
+            notebook['cells'][idx]['source'] = [line + '\n' for line in improved.splitlines()]
+            if (clean_idx := cell_map.get(idx)) is not None:
+                cleaned_cells[clean_idx]['content'] = improved
             updated += 1
 
-    if updated:
-        log(f"✅ {pass_name} pass: Updated {updated} markdown cells ({updated / len(notebook['cells']) * 100:.2f}%)", 'green')
-    else:
-        log(f"⚠️  {pass_name} pass: No cells updated.", 'red')
-
+    log(f"✅ {pass_name} pass: Updated {updated} markdown cells", 'green')
     return notebook, cleaned_cells
 
-# === Main Improvement ===
-def improve_notebook(path: str, env_vars: Dict[str, str], tasks: List[str], verbose: bool = True) -> str:
+# === Main ===
+
+def improve_notebook(path: str, env_vars: Dict[str, str], tasks: List[str]) -> str:
     notebook_path = Path(path)
     if not notebook_path.exists() or notebook_path.suffix != ".ipynb":
         fatal(f"Invalid notebook file: {notebook_path}")
 
-    notebook, cleaned_cells, notebook_text = extract_notebook_cells(notebook_path)
+    notebook, cleaned_cells, notebook_text = extract_cells(notebook_path)
+    client = OpenAI(base_url=env_vars["OPENROUTER_BASE_URL"], api_key=env_vars["OPENROUTER_API_KEY"])
 
-    for idx, task_id in enumerate(tasks, start=1):
-        if task_id == "format-code":
-            formatted = 0
-            for cell in notebook['cells']:
-                if cell['cell_type'] == 'code':
-                    original_code = ''.join(cell['source'])
-                    formatted_code = format_code_cell(original_code)
-                    if formatted_code != original_code:
-                        cell['source'] = [line + '\n' for line in formatted_code.splitlines()]
-                        formatted += 1
-            if formatted:
-                log(f"✅ Formatted {formatted} code cells with Black", 'green')
-            else:
-                log(f"ℹ️  Code cells already properly formatted", 'green')
+    for task in tasks:
+        if task not in PASS_MAP:
+            log(f"⚠️ Unknown task: {task}", 'red')
             continue
-
-        pass_name, prompt_file = PASS_MAP.get(task_id, (None, None))
-        if not pass_name:
-            log(f"⚠️  Unknown task ID '{task_id}'. Skipping.", 'red')
-            continue
-
-        log(f"\n🎯 Task {idx}/{len(tasks)}: {pass_name}", 'green')
-        notebook, cleaned_cells = run_improvement_pass(
-            notebook, cleaned_cells, env_vars, pass_name, prompt_file, notebook_text, verbose
-        )
+        notebook, cleaned_cells = apply_pass(client, notebook, cleaned_cells, env_vars, task, notebook_text)
 
     output_path = notebook_path.with_name(f"{notebook_path.stem}.ipynb")
     nbformat.write(nbformat.from_dict(notebook), str(output_path))
     log(f"\n✅ Improvement complete! Output: {output_path}", 'green')
     return str(output_path)
 
-# === CLI Entrypoint ===
-def main() -> None:
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Notebroom - Notebook Improver")
-    parser.add_argument("notebook", help="Path to the notebook file (.ipynb)")
-    parser.add_argument(
-        "--tasks",
-        nargs="+",
-        default=list(PASS_MAP.keys()),
-        help=f"Sequence of tasks to run (default: normal mode). Available: {', '.join(PASS_MAP.keys())}"
-    )
+    parser.add_argument("notebook", help="Path to the notebook (.ipynb)")
+    parser.add_argument("--tasks", nargs="+", default=list(PASS_MAP.keys()), help=f"Tasks to run: {', '.join(PASS_MAP.keys())}")
     args = parser.parse_args()
 
-    setup_env()
-    env_vars = validate_env()
-
-    improve_notebook(args.notebook, env_vars, tasks=args.tasks, verbose=True)
-
-if __name__ == "__main__":
-    main()
+    env_vars = setup_env()
+    improve_notebook(args.notebook, env_vars, args.tasks)
