@@ -112,6 +112,14 @@ def extract_cells(notebook_path: Path) -> Tuple[Dict, List[Dict], str]:
 
 # === AI Passes ===
 
+def log_cell_update(original: str, updated: str) -> None:
+    """Log the changes to a cell with original content in red and updated in green."""
+    log("\n--- Original content (red) ---", 'red')
+    log(original, 'red')
+    log("\n--- Updated content (green) ---", 'green')
+    log(updated, 'green')
+    log("-----------------------------\n")
+
 def apply_pass(client, notebook, cleaned_cells, env_vars, task_id, notebook_text) -> Tuple[Dict, List[Dict]]:
     pass_name = PASS_MAP[task_id]
     log(f"\n🎯 Starting pass: {pass_name}", 'green')
@@ -184,7 +192,17 @@ def apply_pass(client, notebook, cleaned_cells, env_vars, task_id, notebook_text
             if idx >= len(notebook['cells']) or notebook['cells'][idx]['cell_type'] != 'markdown':
                 continue
 
+            original = ''.join(notebook['cells'][idx]['source']).strip()
             improved = upd['improved_content'].strip()
+            
+            # Skip if no actual changes
+            if original == improved:
+                continue
+                
+            # Log the changes
+            log(f"\nCell {idx} update:", 'green')
+            log_cell_update(original, improved)
+            
             notebook['cells'][idx]['source'] = [line + '\n' for line in improved.splitlines()]
             if (clean_idx := cell_map.get(idx)) is not None:
                 cleaned_cells[clean_idx]['content'] = improved

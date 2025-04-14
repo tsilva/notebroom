@@ -1,4 +1,4 @@
-### ✍️ Pass 2: Conciseness + Style Polish
+### ✍️ Pass: Conciseness + Style Polish
 
 For this pass, focus on **tightening wording** and **polishing style and formatting** within markdown cells.
 
