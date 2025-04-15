@@ -13,6 +13,8 @@ For this pass, focus on **tightening wording** and **polishing style and formatt
 - Refine sentences for smoothness and readability
 
 #### ⚠️ Constraints:
+- Work **within existing cells** — no new sections or headings
+- **Never** ever add headings/titles to cells
 - Do **not** add or remove explanations or steps
 - Preserve original teaching intent and sequence
 - Focus on polishing, not rewriting
