@@ -1,0 +1,5 @@
+- change system prompt to write as if both the author and reading were going through the notebook
+- add support for identing python code, to confirm its not changed, check with and without spaces
+- add support for running tests on notebooks (eg: no todos in notebook, no errors in notebook, no warnings in notebook)
+- integrate notebook patching (eg: colab links / structure)
+- add support for creating notebook intro, outro, and summary
