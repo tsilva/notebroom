@@ -1,43 +1,109 @@
-# 🧹 notebroom
-<p align="center">
-  <img src="logo.jpg" alt="Logo" width="400"/>
-</p>
+<div align="center">
+  <img src="logo.png" alt="notebroom" width="256"/>
 
+  # notebroom
 
-🔹 A tool to improve Jupyter notebook markdown cells using AI, making your notebooks clearer and more engaging.
+  [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+  [![Python](https://img.shields.io/badge/Python-3.8+-3776ab.svg)](https://python.org)
+  [![OpenRouter](https://img.shields.io/badge/Powered%20by-OpenRouter-blueviolet)](https://openrouter.ai)
 
-## 📖 Overview
+  **🧹 AI-powered Jupyter notebook enhancement that makes your markdown cells clearer and more engaging**
 
-`notebroom` analyzes the markdown cells in your Jupyter notebooks and uses AI (via OpenRouter) to enhance their clarity, conciseness, and engagement. It intelligently identifies cells that could benefit from improvement, leaving code cells and well-written markdown untouched.
+  [Installation](#installation) · [Usage](#usage) · [Configuration](#configuration)
+</div>
 
-The tool converts the notebook to a markdown representation, sends relevant cells to the configured AI model, and then updates the original notebook file with the improved content. It provides feedback in the terminal, showing which cells were updated.
+## Overview
 
-## 🚀 Installation
+notebroom analyzes the markdown cells in your Jupyter notebooks and uses AI (via OpenRouter) to enhance their clarity, conciseness, and engagement. It intelligently identifies cells that could benefit from improvement while leaving code cells untouched.
+
+The tool converts notebooks to a structured markdown representation, sends relevant cells to the configured AI model using function calling, and updates the original notebook file with improved content.
+
+## Features
+
+- **Multiple improvement passes** - Expand concepts, reduce redundancy, or format code
+- **Selective updates** - Only markdown cells are modified; code cells remain untouched
+- **Visual feedback** - See original vs updated content with color-coded diff output
+- **Configurable tasks** - Run all passes or pick specific ones
+- **Code formatting** - Optional autopep8 integration for Python code cells
+
+## Installation
 
 ```bash
 pipx install . --force
 ```
 
-## 🛠️ Usage
-
-Before running, you need to configure your API credentials:
-
-1. `notebroom` will automatically create a configuration directory at `~/.notebroom/` on first run if it doesn't exist.
-2. It will copy an example `.env` file into this directory.
-3. Edit the `~/.notebroom/.env` file to add your `OPENROUTER_API_KEY` and customize `MODEL_ID` or `OPENROUTER_BASE_URL` if needed.
-
-Once configured, you can run the tool:
+Or with pip:
 
 ```bash
-# Improve a notebook (single pass)
-notebroom path/to/your/notebook.ipynb
-
-# Improve a notebook with multiple passes (e.g., 3 iterations)
-notebroom path/to/your/notebook.ipynb 3
+pip install .
 ```
 
-The notebook file will be updated in place.
+## Usage
 
-## 📄 License
+### First Run Setup
+
+On first run, notebroom creates a configuration directory at `~/.notebroom/` with an example `.env` file. Edit this file to add your API credentials:
+
+```bash
+# ~/.notebroom/.env
+OPENROUTER_API_KEY=your_api_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+MODEL_ID=anthropic/claude-3.7-sonnet:thinking
+```
+
+### Running notebroom
+
+```bash
+# Run all improvement passes (expand, contract, format-code)
+notebroom path/to/notebook.ipynb
+
+# Run specific tasks only
+notebroom path/to/notebook.ipynb --tasks expand contract
+
+# Just format code cells
+notebroom path/to/notebook.ipynb --tasks format-code
+```
+
+The notebook file is updated in place.
+
+### Available Tasks
+
+| Task | Description |
+|------|-------------|
+| `expand` | Conceptual Expansion - enhances depth and flow |
+| `contract` | Conciseness & Redundancy - tightens wording and style |
+| `format-code` | Python code formatting via autopep8 (indentation only) |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENROUTER_API_KEY` | Yes | Your OpenRouter API key |
+| `OPENROUTER_BASE_URL` | Yes | API endpoint (default: `https://openrouter.ai/api/v1`) |
+| `MODEL_ID` | Yes | AI model to use (e.g., `anthropic/claude-3.7-sonnet:thinking`) |
+
+### How It Works
+
+1. **Parse notebook** - Converts `.ipynb` to structured text with cell metadata
+2. **AI analysis** - Sends notebook representation to configured model
+3. **Function calling** - Model returns structured updates via `update_markdown_cells`
+4. **Apply changes** - Updates are written back to the notebook file
+
+## Testing
+
+Run quality checks on processed notebooks:
+
+```bash
+python test.py path/to/notebook.ipynb
+```
+
+Tests include:
+- No consecutive header-only markdown cells
+- No HTML comments in cells
+- Valid Colab badge format (if present)
+
+## License
 
 This project is licensed under the [MIT License](LICENSE).
