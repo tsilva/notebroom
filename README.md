@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.png" alt="notebroom" width="256"/>
+  <img src="logo.png" alt="notebroom" width="512"/>
 
   # notebroom
 
