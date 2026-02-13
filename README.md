@@ -7,7 +7,7 @@
   [![Python](https://img.shields.io/badge/Python-3.8+-3776ab.svg)](https://python.org)
   [![OpenRouter](https://img.shields.io/badge/Powered%20by-OpenRouter-blueviolet)](https://openrouter.ai)
 
-  **🧹 AI-powered Jupyter notebook enhancement that makes your markdown cells clearer and more engaging**
+  **🧹 AI-powered Jupyter notebook enhancement tool 📓**
 
   [Installation](#installation) · [Usage](#usage) · [Configuration](#configuration)
 </div>
