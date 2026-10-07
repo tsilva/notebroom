@@ -1,22 +1,22 @@
+<p align="center">
+  <img src="logo.png" alt="notebroom" width="512"/>
+  <br />
+  <!-- repo-tagline:start -->
+  <strong>🧹 Polish your Jupyter notebooks with AI-powered markdown enhancement 📓</strong>
+  <!-- repo-tagline:end -->
+</p>
+
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+  [![Python](https://img.shields.io/badge/Python-3.8+-3776ab.svg)](https://python.org)
+  [![OpenRouter](https://img.shields.io/badge/Powered%20by-OpenRouter-blueviolet)](https://openrouter.ai)
+
+  [Installation](#installation) · [Usage](#usage) · [Configuration](#configuration)
+
 > [!WARNING]
 > ## Archived
 > This project is archived and no longer maintained.
 >
 > It has been deprecated — modern AI agents can now handle notebook enhancement tasks more effectively and flexibly than this tool.
-
-<div align="center">
-  <img src="logo.png" alt="notebroom" width="512"/>
-
-  # notebroom
-
-  [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-  [![Python](https://img.shields.io/badge/Python-3.8+-3776ab.svg)](https://python.org)
-  [![OpenRouter](https://img.shields.io/badge/Powered%20by-OpenRouter-blueviolet)](https://openrouter.ai)
-
-  **🧹 Polish your Jupyter notebooks with AI-powered markdown enhancement 📓**
-
-  [Installation](#installation) · [Usage](#usage) · [Configuration](#configuration)
-</div>
 
 ## Overview
 
